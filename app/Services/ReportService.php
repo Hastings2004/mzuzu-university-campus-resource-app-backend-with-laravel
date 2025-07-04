@@ -510,9 +510,24 @@ class ReportService
         // Generate breakdowns
         $breakdowns = $this->generateBookingBreakdowns($bookings, $filters);
 
+        // Add detailed bookings (customize fields as needed)
+        $detailedBookings = $bookings->map(function($booking) {
+            return [
+                'booking_reference' => $booking->booking_reference,
+                'user' => $booking->user ? $booking->user->first_name . ' ' . $booking->user->last_name : null,
+                'user_type' => $booking->user->user_type ?? null,
+                'resource' => $booking->resource ? $booking->resource->name : null,
+                'resource_category' => $booking->resource ? $booking->resource->category : null,
+                'start_time' => $booking->start_time,
+                'end_time' => $booking->end_time,
+                'status' => $booking->status,
+            ];
+        });
+
         return [
             'metrics' => $metrics,
-            'breakdowns' => $breakdowns
+            'breakdowns' => $breakdowns,
+            'bookings' => $detailedBookings,
         ];
     }
 

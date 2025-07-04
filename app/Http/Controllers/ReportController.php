@@ -7,6 +7,7 @@ use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class ReportController extends Controller
 {
@@ -108,6 +109,7 @@ class ReportController extends Controller
         });
 
         $report = $this->reportService->getBookingSummaryReport($filters);
+        Log::info("booking summary " . json_encode($report));
 
         if ($report['success']) {
             return response()->json([
