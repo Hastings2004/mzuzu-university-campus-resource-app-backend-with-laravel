@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Booking Created - Admin Notification</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: green;
+            margin-bottom: 10px;
+        }
+        .title {
+            color: green;
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        .button {
+            display: inline-block;
+            background-color: green;
+            color: #ffffff;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .button:hover {
+            background-color: green;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .details-table th, .details-table td {
+            text-align: left;
+            padding: 8px 12px;
+        }
+        .details-table th {
+            background-color: #f3f4f6;
+            color: green;
+        }
+        .details-table tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="{{ asset('images/logo.png') }}" alt="Mzuzu University Logo" class="logo">
+            <div class="logo">Mzuzu University Campus Resource Booking System</div>
+            <div class="title">New Booking Created - Action Required</div>
+        </div>
+        <div class="content">
+            <p>Hello <strong>{{ $notifiable->first_name }} {{ $notifiable->last_name }}</strong>,</p>
+            <p>A new booking has been created and requires your review or approval.</p>
+            <table class="details-table">
+                <tr>
+                    <th>Booking Reference</th>
+                    <td>{{ $booking->booking_reference }}</td>
+                </tr>
+                <tr>
+                    <th>Resource</th>
+                    <td>{{ $booking->resource->name }}</td>
+                </tr>
+                <tr>
+                    <th>Start Time</th>
+                    <td>{{ $booking->start_time->format('Y-m-d H:i:s') }}</td>
+                </tr>
+                <tr>
+                    <th>End Time</th>
+                    <td>{{ $booking->end_time->format('Y-m-d H:i:s') }}</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>{{ ucfirst($booking->status) }}</td>
+                </tr>
+                <tr>
+                    <th>Booked By</th>
+                    <td>{{ $booking->user->first_name }} {{ $booking->user->last_name }} ({{ $booking->user->email }})</td>
+                </tr>
+                <tr>
+                    <th>Purpose</th>
+                    <td>{{ $booking->purpose }}</td>
+                </tr>
+                <tr>
+                    <th>Booking Type</th>
+                    <td>{{ ucfirst($booking->booking_type) }}</td>
+                </tr>
+            </table>
+            <div style="text-align: center;">
+                <a href="{{ url('http://localhost:5173/admin/bookings/' . $booking->id) }}" class="button">Review & Approve Booking</a>
+            </div>
+            <p>If you have any questions, please contact the resource management team.</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated message for administrators. Please do not reply to this email.</p>
+            <p><strong>Mzuzu University Campus Resource Management Team</strong></p>
+        </div>
+    </div>
+</body>
+</html> 

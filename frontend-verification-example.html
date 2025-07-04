@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification - Campus Resource Booking System</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .header {
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+        .title {
+            color: #1f2937;
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+        .status-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        .success {
+            color: #10b981;
+        }
+        .error {
+            color: #ef4444;
+        }
+        .warning {
+            color: #f59e0b;
+        }
+        .message {
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #2563eb;
+            color: #ffffff;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 10px;
+        }
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+        .button.secondary {
+            background-color: #6b7280;
+        }
+        .button.secondary:hover {
+            background-color: #4b5563;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">Campus Resource Booking System</div>
+            <div class="title">Email Verification</div>
+        </div>
+        
+        <div id="verification-content">
+            <!-- Content will be populated by JavaScript -->
+        </div>
+        
+        <div class="footer">
+            <p>Best regards,<br>
+            <strong>Campus Resource Management Team</strong></p>
+        </div>
+    </div>
+
+    <script>
+        // Get the status from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const status = urlParams.get('status');
+        
+        const contentDiv = document.getElementById('verification-content');
+        
+        switch(status) {
+            case 'success':
+                contentDiv.innerHTML = `
+                    <div class="status-icon success">✅</div>
+                    <div class="message">
+                        <h2>Email Verified Successfully!</h2>
+                        <p>Your email address has been verified. You can now log in to your account and start booking campus resources.</p>
+                    </div>
+                    <a href="/login" class="button">Go to Login</a>
+                `;
+                break;
+                
+            case 'already_verified':
+                contentDiv.innerHTML = `
+                    <div class="status-icon warning">ℹ️</div>
+                    <div class="message">
+                        <h2>Email Already Verified</h2>
+                        <p>Your email address has already been verified. You can log in to your account.</p>
+                    </div>
+                    <a href="/login" class="button">Go to Login</a>
+                `;
+                break;
+                
+            case 'expired':
+                contentDiv.innerHTML = `
+                    <div class="status-icon error">⏰</div>
+                    <div class="message">
+                        <h2>Verification Link Expired</h2>
+                        <p>The verification link has expired. Please request a new verification email.</p>
+                    </div>
+                    <a href="/resend-verification" class="button">Request New Link</a>
+                    <a href="/login" class="button secondary">Go to Login</a>
+                `;
+                break;
+                
+            case 'invalid_link':
+            case 'invalid_signature':
+                contentDiv.innerHTML = `
+                    <div class="status-icon error">❌</div>
+                    <div class="message">
+                        <h2>Invalid Verification Link</h2>
+                        <p>The verification link is invalid or has been tampered with. Please request a new verification email.</p>
+                    </div>
+                    <a href="/resend-verification" class="button">Request New Link</a>
+                    <a href="/login" class="button secondary">Go to Login</a>
+                `;
+                break;
+                
+            default:
+                contentDiv.innerHTML = `
+                    <div class="status-icon error">❓</div>
+                    <div class="message">
+                        <h2>Unknown Status</h2>
+                        <p>An unknown error occurred during email verification.</p>
+                    </div>
+                    <a href="/login" class="button">Go to Login</a>
+                `;
+        }
+    </script>
+</body>
+</html> 
