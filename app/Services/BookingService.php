@@ -89,11 +89,21 @@ class BookingService
      */
     public function findConflictingBookings(int $resourceId, Carbon $startTime, Carbon $endTime, ?int $excludeBookingId = null): \Illuminate\Support\Collection
     {
+        // Get all active bookings for this resource that could potentially conflict
         $query = Booking::where('resource_id', $resourceId)
-            ->whereIn('status', [self::STATUS_PENDING, self::STATUS_APPROVED, self::STATUS_IN_USE])
+            ->whereIn('status', [
+                self::STATUS_PENDING, 
+                self::STATUS_APPROVED, 
+                self::STATUS_IN_USE,
+                'in user' // Include old status for backward compatibility
+            ])
             ->where(function ($q) use ($startTime, $endTime) {
-                $q->where('start_time', '<', $endTime)
-                    ->where('end_time', '>', $startTime);
+                // Check for any overlap between the requested time slot and existing bookings
+                $q->where(function ($subQ) use ($startTime, $endTime) {
+                    // Case 1: Existing booking starts before new booking ends AND ends after new booking starts
+                    $subQ->where('start_time', '<', $endTime)
+                          ->where('end_time', '>', $startTime);
+                });
             });
 
         if ($excludeBookingId) {
@@ -257,6 +267,17 @@ class BookingService
                 $endTime
             );
 
+            // Log conflict detection for debugging
+            Log::info('Conflict detection for booking creation', [
+                'resource_id' => $data['resource_id'],
+                'start_time' => $startTime->toDateTimeString(),
+                'end_time' => $endTime->toDateTimeString(),
+                'conflicts_found' => $conflictingBookings->count(),
+                'user_id' => $user->id,
+                'booking_type' => $data['booking_type'],
+                'new_priority' => $newBookingPriority
+            ]);
+
             $preemptableConflicts = collect();
             $nonPreemptableConflicts = collect();
 
@@ -267,6 +288,15 @@ class BookingService
                     continue;
                 }
                 $conflictPriority = $this->determinePriority($conflict->user, $conflict->booking_type);
+
+                Log::info('Conflict priority comparison', [
+                    'conflict_id' => $conflict->id,
+                    'conflict_user' => $conflict->user->first_name . ' ' . $conflict->user->last_name,
+                    'conflict_booking_type' => $conflict->booking_type,
+                    'conflict_priority' => $conflictPriority,
+                    'new_priority' => $newBookingPriority,
+                    'is_preemptable' => $newBookingPriority > $conflictPriority
+                ]);
 
                 if ($newBookingPriority > $conflictPriority) {
                     $preemptableConflicts->push($conflict);
@@ -687,7 +717,6 @@ class BookingService
                 ];
             }
 
-
             return [
                 'available' => true,
                 'hasConflict' => false,
@@ -793,17 +822,25 @@ class BookingService
     public function isResourceAvailable($resourceId, $start, $end, $ignoreBookingId = null)
     {
         $query = Booking::where('resource_id', $resourceId)
+            ->whereIn('status', [
+                self::STATUS_PENDING, 
+                self::STATUS_APPROVED, 
+                self::STATUS_IN_USE,
+                'in user' // Include old status for backward compatibility
+            ])
             ->where(function ($q) use ($start, $end) {
-                $q->whereBetween('start_time', [$start, $end])
-                  ->orWhereBetween('end_time', [$start, $end])
-                  ->orWhere(function ($q2) use ($start, $end) {
-                      $q2->where('start_time', '<', $start)
-                         ->where('end_time', '>', $end);
-                  });
+                // Check for any overlap between the requested time slot and existing bookings
+                $q->where(function ($subQ) use ($start, $end) {
+                    // Case 1: Existing booking starts before new booking ends AND ends after new booking starts
+                    $subQ->where('start_time', '<', $end)
+                          ->where('end_time', '>', $start);
+                });
             });
+        
         if ($ignoreBookingId) {
             $query->where('id', '!=', $ignoreBookingId);
         }
+        
         return !$query->exists();
     }
 
@@ -839,38 +876,174 @@ class BookingService
     }
 
     /**
-     * Suggest similar resources available at the requested time.
+     * Suggest alternative resources based on features and category similarity.
+     * Enhanced to consider both category and features of the requested resource.
      */
     public function suggestSimilarResources($resource, $start, $end)
     {
         $thirtyDaysAgo = now()->subDays(30);
-        $similarResources = Resource::where('id', '!=', $resource->id)
-            ->where('category', $resource->category)
+        
+        // Get the features of the requested resource
+        $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
+        
+        // Find alternative resources based on multiple criteria
+        $alternativeResources = Resource::where('id', '!=', $resource->id)
+            ->where('is_active', true)
+            ->where(function ($query) use ($resource, $requestedFeatures) {
+                // Same category
+                $query->where('category', $resource->category)
+                    // OR similar features (at least 50% feature match)
+                    ->orWhereHas('features', function ($featureQuery) use ($requestedFeatures) {
+                        if (!empty($requestedFeatures)) {
+                            $featureQuery->whereIn('features.id', $requestedFeatures);
+                        }
+                    });
+            })
+            ->with('features') // Eager load features for scoring
             ->get();
+        
         $usageStats = [];
-        foreach ($similarResources as $res) {
+        $suggestions = [];
+        
+        foreach ($alternativeResources as $res) {
             // Count bookings in the last 30 days
             $usageStats[$res->id] = $res->bookings()
                 ->where('start_time', '>=', $thirtyDaysAgo)
                 ->count();
-        }
-        // Sort resources by usage (ascending)
-        $sortedResources = $similarResources->sortBy(function($res) use ($usageStats) {
-            return $usageStats[$res->id] ?? 0;
-        });
-        $suggestions = [];
-        foreach ($sortedResources as $res) {
+            
+            // Calculate feature similarity score
+            $resFeatures = $res->features()->pluck('features.id')->toArray();
+            $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
+            $featureSimilarityScore = !empty($requestedFeatures) ? ($featureMatchCount / count($requestedFeatures)) * 100 : 0;
+            
+            // Check availability
             if ($this->isResourceAvailable($res->id, $start, $end)) {
                 $suggestions[] = [
                     'resource_id' => $res->id,
+                    'resource_name' => $res->name,
+                    'resource_location' => $res->location,
+                    'resource_capacity' => $res->capacity,
+                    'resource_category' => $res->category,
                     'start_time' => Carbon::parse($start)->toDateTimeString(),
                     'end_time' => Carbon::parse($end)->toDateTimeString(),
                     'type' => 'alternative_resource',
                     'recent_booking_count' => $usageStats[$res->id] ?? 0,
+                    'feature_similarity_score' => round($featureSimilarityScore, 1),
+                    'feature_match_count' => $featureMatchCount,
+                    'total_requested_features' => count($requestedFeatures),
+                    'matching_features' => $this->getMatchingFeatureNames($requestedFeatures, $resFeatures),
+                    'suggestion_reason' => $this->getSuggestionReason($resource, $res, $featureSimilarityScore),
                 ];
             }
         }
+        
+        // Sort suggestions by feature similarity score (descending), then by usage (ascending)
+        usort($suggestions, function($a, $b) {
+            // First sort by feature similarity score (descending)
+            $scoreDiff = ($b['feature_similarity_score'] ?? 0) - ($a['feature_similarity_score'] ?? 0);
+            if ($scoreDiff !== 0) {
+                return $scoreDiff;
+            }
+            // Then sort by usage (ascending - less used resources first)
+            return ($a['recent_booking_count'] ?? 0) - ($b['recent_booking_count'] ?? 0);
+        });
+        
         return $suggestions;
+    }
+
+    /**
+     * Get feature-based alternative resources suggestions.
+     * This method specifically focuses on finding resources with similar features.
+     */
+    public function suggestFeatureBasedAlternatives($resource, $start, $end, $minFeatureMatch = 0.3)
+    {
+        $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
+        
+        if (empty($requestedFeatures)) {
+            return []; // No features to match against
+        }
+        
+        $alternativeResources = Resource::where('id', '!=', $resource->id)
+            ->where('is_active', true)
+            ->whereHas('features', function ($query) use ($requestedFeatures) {
+                $query->whereIn('features.id', $requestedFeatures);
+            })
+            ->with('features')
+            ->get();
+        
+        $suggestions = [];
+        
+        foreach ($alternativeResources as $res) {
+            $resFeatures = $res->features()->pluck('features.id')->toArray();
+            $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
+            $featureSimilarityScore = ($featureMatchCount / count($requestedFeatures)) * 100;
+            
+            // Only include if feature match is above minimum threshold
+            if ($featureSimilarityScore >= ($minFeatureMatch * 100) && $this->isResourceAvailable($res->id, $start, $end)) {
+                $suggestions[] = [
+                    'resource_id' => $res->id,
+                    'resource_name' => $res->name,
+                    'resource_location' => $res->location,
+                    'resource_capacity' => $res->capacity,
+                    'resource_category' => $res->category,
+                    'start_time' => Carbon::parse($start)->toDateTimeString(),
+                    'end_time' => Carbon::parse($end)->toDateTimeString(),
+                    'type' => 'feature_based_alternative',
+                    'feature_similarity_score' => round($featureSimilarityScore, 1),
+                    'feature_match_count' => $featureMatchCount,
+                    'total_requested_features' => count($requestedFeatures),
+                    'matching_features' => $this->getMatchingFeatureNames($requestedFeatures, $resFeatures),
+                    'suggestion_reason' => "Matches {$featureMatchCount} out of " . count($requestedFeatures) . " requested features",
+                ];
+            }
+        }
+        
+        // Sort by feature similarity score (descending)
+        usort($suggestions, function($a, $b) {
+            return ($b['feature_similarity_score'] ?? 0) - ($a['feature_similarity_score'] ?? 0);
+        });
+        
+        return $suggestions;
+    }
+
+    /**
+     * Get matching feature names for display purposes.
+     */
+    private function getMatchingFeatureNames($requestedFeatureIds, $resourceFeatureIds)
+    {
+        $matchingIds = array_intersect($requestedFeatureIds, $resourceFeatureIds);
+        if (empty($matchingIds)) {
+            return [];
+        }
+        
+        return \App\Models\Feature::whereIn('id', $matchingIds)
+            ->pluck('name')
+            ->toArray();
+    }
+
+    /**
+     * Get a human-readable reason for the suggestion.
+     */
+    private function getSuggestionReason($originalResource, $suggestedResource, $featureSimilarityScore)
+    {
+        $reasons = [];
+        
+        // Category match
+        if ($originalResource->category === $suggestedResource->category) {
+            $reasons[] = "Same category ({$originalResource->category})";
+        }
+        
+        // Feature match
+        if ($featureSimilarityScore > 0) {
+            $reasons[] = "Matches " . round($featureSimilarityScore) . "% of requested features";
+        }
+        
+        // Capacity comparison
+        if ($suggestedResource->capacity >= $originalResource->capacity) {
+            $reasons[] = "Same or larger capacity ({$suggestedResource->capacity})";
+        }
+        
+        return implode(", ", $reasons);
     }
 
     /**
@@ -936,57 +1109,178 @@ class BookingService
     }
 
     /**
+     * Clean up old status values in the database to ensure consistency.
+     * This method should be run once to fix any legacy data.
+     *
+     * @return int Number of records updated
+     */
+    public function cleanupOldStatusValues(): int
+    {
+        $updatedCount = 0;
+        
+        // Update any remaining 'in user' status to 'in_use'
+        $updatedCount += Booking::where('status', 'in user')->update(['status' => self::STATUS_IN_USE]);
+        
+        // Update any other inconsistent status values
+        $statusMappings = [
+            'in user' => self::STATUS_IN_USE,
+            'approved' => self::STATUS_APPROVED,
+            'pending' => self::STATUS_PENDING,
+            'cancelled' => self::STATUS_CANCELLED,
+            'rejected' => self::STATUS_REJECTED,
+            'completed' => self::STATUS_COMPLETED,
+            'expired' => self::STATUS_EXPIRED,
+            'preempted' => self::STATUS_PREEMPTED
+        ];
+        
+        foreach ($statusMappings as $oldStatus => $newStatus) {
+            $count = Booking::where('status', $oldStatus)->update(['status' => $newStatus]);
+            $updatedCount += $count;
+        }
+        
+        Log::info("Cleaned up {$updatedCount} booking records with old status values");
+        
+        return $updatedCount;
+    }
+
+    /**
+     * Debug method to help troubleshoot conflict detection issues.
+     *
+     * @param int $resourceId
+     * @param Carbon $startTime
+     * @param Carbon $endTime
+     * @return array
+     */
+    public function debugConflictDetection(int $resourceId, Carbon $startTime, Carbon $endTime): array
+    {
+        $resource = Resource::find($resourceId);
+        if (!$resource) {
+            return ['error' => 'Resource not found'];
+        }
+
+        // Get all bookings for this resource
+        $allBookings = Booking::where('resource_id', $resourceId)
+            ->with(['user:id,first_name,last_name,email,user_type'])
+            ->get();
+
+        // Get conflicting bookings using our method
+        $conflictingBookings = $this->findConflictingBookings($resourceId, $startTime, $endTime);
+
+        // Manual conflict check for comparison
+        $manualConflicts = $allBookings->filter(function ($booking) use ($startTime, $endTime) {
+            return in_array($booking->status, [
+                self::STATUS_PENDING, 
+                self::STATUS_APPROVED, 
+                self::STATUS_IN_USE,
+                'in user'
+            ]) && $booking->start_time < $endTime && $booking->end_time > $startTime;
+        });
+
+        return [
+            'resource' => [
+                'id' => $resource->id,
+                'name' => $resource->name,
+                'capacity' => $resource->capacity,
+                'is_active' => $resource->is_active
+            ],
+            'requested_time' => [
+                'start' => $startTime->toDateTimeString(),
+                'end' => $endTime->toDateTimeString()
+            ],
+            'all_bookings_count' => $allBookings->count(),
+            'conflicting_bookings_count' => $conflictingBookings->count(),
+            'manual_conflicts_count' => $manualConflicts->count(),
+            'all_bookings' => $allBookings->map(function ($booking) {
+                return [
+                    'id' => $booking->id,
+                    'status' => $booking->status,
+                    'start_time' => $booking->start_time->toDateTimeString(),
+                    'end_time' => $booking->end_time->toDateTimeString(),
+                    'user' => $booking->user ? $booking->user->first_name . ' ' . $booking->user->last_name : 'Unknown'
+                ];
+            }),
+            'conflicting_bookings' => $conflictingBookings->map(function ($booking) {
+                return [
+                    'id' => $booking->id,
+                    'status' => $booking->status,
+                    'start_time' => $booking->start_time->toDateTimeString(),
+                    'end_time' => $booking->end_time->toDateTimeString(),
+                    'user' => $booking->user ? $booking->user->first_name . ' ' . $booking->user->last_name : 'Unknown'
+                ];
+            })
+        ];
+    }
+
+    /**
      * Main method to get all suggestions, prioritizing those that match user preferences.
+     * Enhanced to include feature-based alternatives.
      */
     public function getBookingSuggestions($user, $resource, $start, $end)
     {
         $suggestions = [];
-        // 1. Nearby slots
+        
+        // 1. Nearby slots for the same resource
         $suggestions = array_merge($suggestions, $this->suggestNearbySlots($resource->id, $start, $end));
-        // 2. Similar resources
+        
+        // 2. Similar resources (category and feature-based)
         $suggestions = array_merge($suggestions, $this->suggestSimilarResources($resource, $start, $end));
-        // 3. Minor overlap
+        
+        // 3. Feature-based alternatives (specifically looking for resources with similar features)
+        $featureBasedSuggestions = $this->suggestFeatureBasedAlternatives($resource, $start, $end);
+        $suggestions = array_merge($suggestions, $featureBasedSuggestions);
+        
+        // 4. Minor overlap allowed
         if ($this->allowMinorOverlap($resource->id, $start, $end)) {
             $suggestions[] = [
                 'resource_id' => $resource->id,
+                'resource_name' => $resource->name,
+                'resource_location' => $resource->location,
+                'resource_capacity' => $resource->capacity,
+                'resource_category' => $resource->category,
                 'start_time' => Carbon::parse($start)->toDateTimeString(),
                 'end_time' => Carbon::parse($end)->toDateTimeString(),
-                'type' => 'minor_overlap_allowed'
+                'type' => 'minor_overlap_allowed',
+                'suggestion_reason' => 'Minor overlap allowed for this resource'
             ];
         }
-        // 4. Filter by user schedule
+        
+        // 5. Filter by user schedule
         $suggestions = $this->filterByUserSchedule($user, $suggestions);
 
-        // 5. Advanced: Score and sort by user preferences
+        // 6. Advanced: Score and sort by user preferences
         $preferences = $user->preferences ?? [];
         foreach ($suggestions as &$suggestion) {
             $score = 0;
             $res = Resource::find($suggestion['resource_id']);
             if (!$res) continue;
+            
             // Category match
             if (!empty($preferences['categories']) && in_array($res->category, $preferences['categories'])) {
                 $score += 2;
             }
+            
             // Location match
             if (!empty($preferences['locations']) && in_array($res->location, $preferences['locations'])) {
                 $score += 2;
             }
+            
             // Capacity match (at least as large as preferred)
             if (!empty($preferences['capacity']) && $res->capacity >= $preferences['capacity']) {
                 $score += 1;
             }
+            
             // Features match (count how many preferred features are present)
-            if (!empty($preferences['features']) && property_exists($res, 'features')) {
+            if (!empty($preferences['features'])) {
+                $resFeatures = $res->features()->pluck('features.name')->toArray();
                 $matched = 0;
                 foreach ($preferences['features'] as $feature) {
-                    if (is_array($res->features) && in_array($feature, $res->features)) {
-                        $matched++;
-                    } elseif (is_string($res->features) && stripos($res->features, $feature) !== false) {
+                    if (in_array($feature, $resFeatures)) {
                         $matched++;
                     }
                 }
                 $score += $matched;
             }
+            
             // Time match (suggestion start time matches preferred times)
             if (!empty($preferences['times'])) {
                 $suggestionHour = Carbon::parse($suggestion['start_time'])->format('H:i');
@@ -997,13 +1291,34 @@ class BookingService
                     }
                 }
             }
+            
+            // Add feature similarity score if available
+            if (isset($suggestion['feature_similarity_score'])) {
+                $score += ($suggestion['feature_similarity_score'] / 100) * 3; // Weight feature similarity
+            }
+            
             $suggestion['preference_score'] = $score;
         }
         unset($suggestion);
-        // Sort suggestions by preference_score (descending)
+        
+        // Sort suggestions by preference_score (descending), then by feature similarity
         usort($suggestions, function($a, $b) {
-            return ($b['preference_score'] ?? 0) <=> ($a['preference_score'] ?? 0);
+            // First sort by preference score
+            $prefDiff = ($b['preference_score'] ?? 0) - ($a['preference_score'] ?? 0);
+            if ($prefDiff !== 0) {
+                return $prefDiff;
+            }
+            
+            // Then by feature similarity score
+            $featureDiff = ($b['feature_similarity_score'] ?? 0) - ($a['feature_similarity_score'] ?? 0);
+            if ($featureDiff !== 0) {
+                return $featureDiff;
+            }
+            
+            // Finally by usage (less used resources first)
+            return ($a['recent_booking_count'] ?? 0) - ($b['recent_booking_count'] ?? 0);
         });
+        
         return $suggestions;
     }
 }

@@ -159,7 +159,7 @@ class BookingController extends Controller
     }
     /**
      * Check resource availability.
-     * This method now delegates to the BookingService.
+     * This method now delegates to the BookingService and includes alternative suggestions.
      *
      * @param Request $request
      * @return JsonResponse
@@ -184,6 +184,24 @@ class BookingController extends Controller
             $endTime,
             $excludeBookingId
         );
+
+        // If resource is not available, include alternative suggestions
+        if (!$result['available'] && $result['hasConflict']) {
+            $user = Auth::user();
+            $resource = Resource::find($resourceId);
+            
+            if ($user && $resource) {
+                $suggestions = $this->bookingService->getBookingSuggestions(
+                    $user, 
+                    $resource, 
+                    $startTime->toDateTimeString(), 
+                    $endTime->toDateTimeString()
+                );
+                
+                $result['suggestions'] = $suggestions;
+                $result['message'] .= ' Here are some alternative resources that might be available:';
+            }
+        }
 
         // Map status codes for response based on the service's result
         $statusCode = $result['available'] ? 200 : ($result['hasConflict'] ? 409 : 422);

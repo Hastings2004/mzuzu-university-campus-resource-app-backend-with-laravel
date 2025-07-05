@@ -739,38 +739,115 @@ export default function BookingFormWithSuggestions() {
                                         </form>
                                         {bookingMessage && <p className="booking-message">{bookingMessage}</p>}
 
-                                        {/* SUGGESTIONS TABLE */}
+                                        {/* ENHANCED SUGGESTIONS TABLE */}
                                         {suggestions.length > 0 && (
                                             <div className="suggestions-section">
-                                                <h4>Suggested Alternatives</h4>
-                                                <table>
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Resource ID</th>
-                                                            <th>Start</th>
-                                                            <th>End</th>
-                                                            <th>Type</th>
-                                                            <th>Preference Score</th>
-                                                            <th>Book</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {suggestions.map((s, idx) => (
-                                                            <tr key={idx}>
-                                                                <td>{s.resource_id}</td>
-                                                                <td>{formatDateTime(s.start_time)}</td>
-                                                                <td>{formatDateTime(s.end_time)}</td>
-                                                                <td>{s.type}</td>
-                                                                <td>{s.preference_score ?? 0}</td>
-                                                                <td>
-                                                                    <button onClick={() => handleSuggestionBooking(s)}>
-                                                                        Book This
-                                                                    </button>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                                <h4>🎯 Suggested Alternative Resources</h4>
+                                                <p className="suggestions-intro">
+                                                    The requested resource is not available. Here are some alternatives that match your needs:
+                                                </p>
+                                                <div className="suggestions-grid">
+                                                    {suggestions.map((suggestion, idx) => (
+                                                        <div key={idx} className="suggestion-card">
+                                                            <div className="suggestion-header">
+                                                                <h5 className="suggestion-title">
+                                                                    {suggestion.resource_name || `Resource #${suggestion.resource_id}`}
+                                                                </h5>
+                                                                <span className={`suggestion-type ${suggestion.type}`}>
+                                                                    {suggestion.type === 'alternative_resource' && '🔄 Alternative'}
+                                                                    {suggestion.type === 'feature_based_alternative' && '✨ Feature Match'}
+                                                                    {suggestion.type === 'minor_overlap_allowed' && '⏰ Minor Overlap'}
+                                                                    {suggestion.type === 'nearby_slot' && '🕐 Nearby Time'}
+                                                                </span>
+                                                            </div>
+                                                            
+                                                            <div className="suggestion-details">
+                                                                <div className="detail-row">
+                                                                    <span className="detail-label">📍 Location:</span>
+                                                                    <span className="detail-value">{suggestion.resource_location || 'N/A'}</span>
+                                                                </div>
+                                                                <div className="detail-row">
+                                                                    <span className="detail-label">👥 Capacity:</span>
+                                                                    <span className="detail-value">{suggestion.resource_capacity || 'N/A'}</span>
+                                                                </div>
+                                                                <div className="detail-row">
+                                                                    <span className="detail-label">📂 Category:</span>
+                                                                    <span className="detail-value">{suggestion.resource_category || 'N/A'}</span>
+                                                                </div>
+                                                                <div className="detail-row">
+                                                                    <span className="detail-label">🕐 Start Time:</span>
+                                                                    <span className="detail-value">{formatDateTime(suggestion.start_time)}</span>
+                                                                </div>
+                                                                <div className="detail-row">
+                                                                    <span className="detail-label">🕐 End Time:</span>
+                                                                    <span className="detail-value">{formatDateTime(suggestion.end_time)}</span>
+                                                                </div>
+                                                                
+                                                                {/* Feature similarity information */}
+                                                                {suggestion.feature_similarity_score !== undefined && (
+                                                                    <div className="detail-row">
+                                                                        <span className="detail-label">🎯 Feature Match:</span>
+                                                                        <span className="detail-value">
+                                                                            {suggestion.feature_similarity_score}% 
+                                                                            ({suggestion.feature_match_count}/{suggestion.total_requested_features} features)
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {/* Matching features list */}
+                                                                {suggestion.matching_features && suggestion.matching_features.length > 0 && (
+                                                                    <div className="detail-row">
+                                                                        <span className="detail-label">✅ Matching Features:</span>
+                                                                        <span className="detail-value">
+                                                                            {suggestion.matching_features.join(', ')}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {/* Suggestion reason */}
+                                                                {suggestion.suggestion_reason && (
+                                                                    <div className="detail-row">
+                                                                        <span className="detail-label">💡 Why Suggested:</span>
+                                                                        <span className="detail-value">{suggestion.suggestion_reason}</span>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {/* Usage statistics */}
+                                                                {suggestion.recent_booking_count !== undefined && (
+                                                                    <div className="detail-row">
+                                                                        <span className="detail-label">📊 Recent Usage:</span>
+                                                                        <span className="detail-value">{suggestion.recent_booking_count} bookings (last 30 days)</span>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {/* Preference score */}
+                                                                {suggestion.preference_score !== undefined && (
+                                                                    <div className="detail-row">
+                                                                        <span className="detail-label">⭐ Preference Score:</span>
+                                                                        <span className="detail-value">{suggestion.preference_score}</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            <div className="suggestion-actions">
+                                                                <button 
+                                                                    onClick={() => handleSuggestionBooking(suggestion)}
+                                                                    className="book-suggestion-btn"
+                                                                >
+                                                                    📅 Book This Resource
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                
+                                                {/* Summary information */}
+                                                <div className="suggestions-summary">
+                                                    <p>
+                                                        <strong>💡 Tip:</strong> Resources are ranked by feature similarity and your preferences. 
+                                                        Higher feature match percentages indicate more similar resources to your original request.
+                                                    </p>
+                                                </div>
                                             </div>
                                         )}
                                     </div>

@@ -107,7 +107,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/recommendations/resources', [RecommendationController::class, 'getRecommendations']);
     Route::get('/recommendations/resources/time-based', [RecommendationController::class, 'getTimeBasedRecommendations']);
     Route::get('/recommendations/user/preferences', [RecommendationController::class, 'getUserPreferences']);
-    Route::get('/bookings/recent', [BookingController::class, 'recentBookings']);
+    Route::get('/bookings-recent', [BookingController::class, 'recentBookings']);
     Route::get('/resources-trending', [ResourceController::class, 'trending']);
     Route::get('/resources-recently-booked', [ResourceController::class, 'getRecentlyBookedResources']);
     Route::put('/user/preferences', [UserController::class, 'updatePreferences']);
