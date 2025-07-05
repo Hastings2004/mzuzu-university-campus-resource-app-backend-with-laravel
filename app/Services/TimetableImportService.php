@@ -32,54 +32,47 @@ class TimetableImportService
             $header = $sheet->rangeToArray('A1:' . $sheet->getHighestColumn() . '1', NULL, TRUE, FALSE)[0];
             Log::info("DEBUG: Headers detected in file: " . json_encode($header));
 
-            // Define all your time slot column headers EXACTLY as they appear in your Excel sheet.
-            // YOU MUST POPULATE THIS ARRAY WITH ALL YOUR TIME SLOTS!
-            $timeSlotHeaders = [
-                '7:45',
-                '8:45',
-                '9:45',
-                '10:45',
-                '11:45',
-                '12:45', 
-                '1:45',
-                '2:45',
-                '3:45',
-                '4:45',
-                '5:45', 
-                
+            // Define common time slot patterns for school timetables
+            $timeSlotPatterns = [
+                '7:45', '8:45', '9:45', '10:45', '11:45', '12:45',
+                '1:45', '2:45', '3:45', '4:45', '5:45',
+                '08:00', '09:00', '10:00', '11:00', '12:00',
+                '13:00', '14:00', '15:00', '16:00', '17:00',
+                '8:00-9:00', '9:00-10:00', '10:00-11:00', '11:00-12:00',
+                '13:00-14:00', '14:00-15:00', '15:00-16:00', '16:00-17:00'
             ];
-
 
             // Map standard column names to their indices
             $columnMap = [
-                'LEVEL'         => array_search('LEVEL', $header)                
+                'LEVEL' => array_search('LEVEL', $header),
+                'DAY' => array_search('DAY', $header),
+                'DAY_OF_WEEK' => array_search('DAY_OF_WEEK', $header),
+                'COURSE' => array_search('COURSE', $header),
+                'SUBJECT' => array_search('SUBJECT', $header),
+                'TEACHER' => array_search('TEACHER', $header),
+                'VENUE' => array_search('VENUE', $header),
+                'ROOM' => array_search('ROOM', $header),
+                'SEMESTER' => array_search('SEMESTER', $header),
+                'CLASS' => array_search('CLASS', $header),
+                'SECTION' => array_search('SECTION', $header)
             ];
 
             // Add time slot headers to columnMap
-            foreach ($timeSlotHeaders as $tsHeader) {
-                $columnMap[$tsHeader] = array_search($tsHeader, $header);
-            }
-
-            // Validate that essential columns exist
-            // 'COURSE TITLE' and 'TIME' are no longer direct essential columns, as they are derived.
-            // 'VENUE' is also optional as it can be derived from the cell content.
-            foreach (['LEVEL'] as $requiredCol) {
-                if ($columnMap[$requiredCol] === false || $columnMap[$requiredCol] === null) {
-                    throw new \Exception("Required column '{$requiredCol}' not found in the file header. Please ensure correct headers.");
+            foreach ($timeSlotPatterns as $pattern) {
+                $columnIndex = array_search($pattern, $header);
+                if ($columnIndex !== false) {
+                    $columnMap[$pattern] = $columnIndex;
                 }
             }
 
-            // Validate that at least one time slot column is detected
-            $foundTimeSlots = false;
-            foreach ($timeSlotHeaders as $tsHeader) {
-                if ($columnMap[$tsHeader] !== false && $columnMap[$tsHeader] !== null) {
-                    $foundTimeSlots = true;
-                    break;
-                }            }
-            // if (!$foundTimeSlots) {
-            //     throw new \Exception("No time slot columns (e.g., '7:45-8:45') found in header. Please ensure your time slot headers are correctly defined in \$timeSlotHeaders array and present in the file.");
-            // }
+            // Also check for time ranges in headers
+            foreach ($header as $index => $headerName) {
+                if (preg_match('/\d{1,2}:\d{2}-\d{1,2}:\d{2}/', $headerName)) {
+                    $columnMap[$headerName] = $index;
+                }
+            }
 
+            Log::info("DEBUG: Column mapping: " . json_encode($columnMap));
 
             DB::beginTransaction(); // Start a database transaction
 
@@ -92,33 +85,52 @@ class TimetableImportService
                     continue;
                 }
 
-                // Extract and trim data for row-level fields
-                $level = trim($rowData[$columnMap['LEVEL']] ?? 'N/A'); // Use N/A if LEVEL is not found or empty
-                //$mainRowVenue = trim($rowData[$columnMap['VENUE']] ?? ''); // This is the venue column in the main row
+                // Extract row-level data
+                $level = trim($rowData[$columnMap['LEVEL']] ?? 'N/A');
+                $day = trim($rowData[$columnMap['DAY']] ?? $rowData[$columnMap['DAY_OF_WEEK']] ?? '');
+                $teacher = trim($rowData[$columnMap['TEACHER']] ?? '');
+                $semester = trim($rowData[$columnMap['SEMESTER']] ?? 'Current Semester');
+                $classSection = trim($rowData[$columnMap['CLASS']] ?? $rowData[$columnMap['SECTION']] ?? $level);
 
+                // If no day is found in the row, try to determine from the sheet name or other means
+                if (empty($day)) {
+                    $sheetName = strtolower($sheet->getTitle());
+                    if (strpos($sheetName, 'monday') !== false) $day = 'Monday';
+                    elseif (strpos($sheetName, 'tuesday') !== false) $day = 'Tuesday';
+                    elseif (strpos($sheetName, 'wednesday') !== false) $day = 'Wednesday';
+                    elseif (strpos($sheetName, 'thursday') !== false) $day = 'Thursday';
+                    elseif (strpos($sheetName, 'friday') !== false) $day = 'Friday';
+                    elseif (strpos($sheetName, 'saturday') !== false) $day = 'Saturday';
+                    elseif (strpos($sheetName, 'sunday') !== false) $day = 'Sunday';
+                }
 
                 // Validate essential row-level data
                 if (empty($day)) {
-                    Log::warning("Skipping row {$row} due to missing 'DAY' data: " . implode(', ', $rowData));
+                    Log::warning("Skipping row {$row} due to missing day data: " . implode(', ', $rowData));
                     continue;
                 }
 
                 // Iterate through time slot columns
-                foreach ($timeSlotHeaders as $tsHeader) {
-                    $timeSlotCellContent = trim($rowData[$columnMap[$tsHeader]] ?? '');
+                foreach ($columnMap as $columnName => $columnIndex) {
+                    // Skip non-time slot columns
+                    if (in_array($columnName, ['LEVEL', 'DAY', 'DAY_OF_WEEK', 'COURSE', 'SUBJECT', 'TEACHER', 'VENUE', 'ROOM', 'SEMESTER', 'CLASS', 'SECTION'])) {
+                        continue;
+                    }
+
+                    $timeSlotCellContent = trim($rowData[$columnIndex] ?? '');
 
                     // Only process if the time slot cell is not empty
                     if (!empty($timeSlotCellContent)) {
-                        // Parse cell content (e.g., "BICT 3601 - ICT Lab 1")
+                        // Parse cell content (e.g., "BICT 3601 - ICT Lab 1" or "Mathematics - Room 101")
                         list($courseCode, $classVenue) = $this->parseCourseAndVenueFromCell($timeSlotCellContent);
 
                         if (empty($courseCode)) {
-                            Log::warning("Skipping time slot '{$tsHeader}' in row {$row} due to unparsable class content: '{$timeSlotCellContent}'");
+                            Log::warning("Skipping time slot '{$columnName}' in row {$row} due to unparsable class content: '{$timeSlotCellContent}'");
                             continue;
                         }
 
                         // Determine start and end time from the time slot header
-                        list($startTimeStr, $endTimeStr) = $this->splitTimeRange($tsHeader);
+                        list($startTimeStr, $endTimeStr) = $this->splitTimeRange($columnName);
 
                         $startTime = $this->formatTime($startTimeStr);
                         $endTime = $this->formatTime($endTimeStr);
@@ -126,25 +138,21 @@ class TimetableImportService
 
                         // Validate parsed times and day
                         if (is_null($startTime) || is_null($endTime) || is_null($dayOfWeek)) {
-                            Log::error("Failed to parse time ('{$startTimeStr}' or '{$endTimeStr}') or day ('{$day}') for row {$row}, time slot '{$tsHeader}'. Raw Data: " . json_encode($rowData));
+                            Log::error("Failed to parse time ('{$startTimeStr}' or '{$endTimeStr}') or day ('{$day}') for row {$row}, time slot '{$columnName}'. Raw Data: " . json_encode($rowData));
                             continue; // Skip this specific time slot entry
                         }
 
                         // Determine the actual venue for this class entry
-                        // Prioritize venue from the cell, fallback to main row venue, then a default
-                        $actualVenueName = !empty($classVenue) ? $classVenue : "room";
-                        if (empty($actualVenueName)) {
-                             Log::warning("Skipping time slot '{$tsHeader}' in row {$row} due to no venue identified. Content: '{$timeSlotCellContent}'");
-                             continue;
-                        }
-
+                        $actualVenueName = !empty($classVenue) ? $classVenue : "Default Room";
+                        
                         // Find or create resource for the specific class venue
                         $resource = Resource::firstOrCreate(
                             ['name' => $actualVenueName],
                             [
-                                'description' => 'Default description for ' . $actualVenueName,
-                                'location'    => 'Main Campus', // Default location
-                                'capacity'    => 50, // Default capacity
+                                'description' => 'Classroom for ' . $actualVenueName,
+                                'location'    => 'Main Campus',
+                                'capacity'    => 30, // Default capacity for classrooms
+                                'category'    => 'classrooms',
                             ]
                         );
 
@@ -154,14 +162,18 @@ class TimetableImportService
 
                         // Create Timetable entry
                         Timetable::create([
+                            'course_code'   => $courseCode,
                             'subject'       => $courseCode, // Using course code as subject
-                            'teacher'       => "",
+                            'teacher'       => $teacher,
                             'room_id'       => $resource->id,
                             'day_of_week'   => $dayOfWeek,
                             'start_time'    => $startTime,
                             'end_time'      => $endTime,
-                            'semester'      => 'December 2024', // Hardcoded or derive dynamically if possible
-                            'class_section' => $level, // Using LEVEL for class_section
+                            'semester'      => $semester,
+                            'class_section' => $classSection,
+                            'course_name'   => $courseCode,
+                            'room'          => $actualVenueName,
+                            'type'          => 'class'
                         ]);
                     }
                 }
@@ -185,16 +197,43 @@ class TimetableImportService
      * Splits a time range string (e.g., "8:45-10:45" or "8:45AM - 10:45AM") into start and end time strings.
      *
      * @param string $timeRange The time range string from the column header.
-     * @return array An array containing [startTimeStr, endTimeStr]. Defaults to ['00:00AM', '00:00AM'] if parsing fails.
+     * @return array An array containing [startTimeStr, endTimeStr]. Defaults to ['00:00', '00:00'] if parsing fails.
      */
     protected function splitTimeRange(string $timeRange): array
     {
-        $parts = explode('-', $timeRange);
-        if (count($parts) === 2) {
-            return [trim($parts[0]), trim($parts[1])];
+        // Handle time ranges like "8:00-9:00"
+        if (strpos($timeRange, '-') !== false) {
+            $parts = explode('-', $timeRange);
+            if (count($parts) === 2) {
+                return [trim($parts[0]), trim($parts[1])];
+            }
         }
-        Log::warning("Could not split time range header: '{$timeRange}'. Expected format 'START-END'.");
+        
+        // Handle single time slots like "8:45" - assume 1 hour duration
+        if (preg_match('/^\d{1,2}:\d{2}$/', $timeRange)) {
+            $startTime = $timeRange;
+            $endTime = $this->addOneHour($startTime);
+            return [$startTime, $endTime];
+        }
+        
+        Log::warning("Could not split time range header: '{$timeRange}'. Expected format 'START-END' or single time.");
         return ['00:00', '00:00']; // Fallback in 24-hour format
+    }
+
+    /**
+     * Adds one hour to a time string.
+     *
+     * @param string $timeString
+     * @return string
+     */
+    protected function addOneHour(string $timeString): string
+    {
+        try {
+            $carbonTime = Carbon::parse($timeString);
+            return $carbonTime->addHour()->format('H:i');
+        } catch (\Exception $e) {
+            return '00:00';
+        }
     }
 
     /**
