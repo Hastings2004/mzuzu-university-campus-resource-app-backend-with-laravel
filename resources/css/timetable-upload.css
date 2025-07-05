@@ -1,0 +1,295 @@
+/* Timetable Upload Form Styles */
+.timetable-upload-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.timetable-upload-container h2 {
+    color: #2c3e50;
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 2rem;
+}
+
+/* Upload Section */
+.upload-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 30px;
+    border: 1px solid #e9ecef;
+}
+
+.upload-section h3 {
+    color: #495057;
+    margin-bottom: 20px;
+    font-size: 1.3rem;
+}
+
+.file-upload-area {
+    margin-bottom: 20px;
+}
+
+.file-input {
+    display: none;
+}
+
+.file-label {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #007bff;
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    border: none;
+    font-size: 1rem;
+}
+
+.file-label:hover {
+    background: #0056b3;
+}
+
+.upload-btn {
+    background: #28a745;
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.3s ease;
+}
+
+.upload-btn:hover:not(:disabled) {
+    background: #218838;
+}
+
+.upload-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+/* Message Display */
+.message {
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+/* Timetable Display Section */
+.timetable-display-section {
+    background: white;
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 30px;
+    border: 1px solid #e9ecef;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h3 {
+    color: #495057;
+    margin: 0;
+    font-size: 1.3rem;
+}
+
+.load-btn {
+    background: #17a2b8;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.3s ease;
+}
+
+.load-btn:hover:not(:disabled) {
+    background: #138496;
+}
+
+.load-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+/* Timetable Table */
+.timetable-table-container {
+    overflow-x: auto;
+    margin-top: 20px;
+}
+
+.timetable-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.timetable-table th {
+    background: #343a40;
+    color: white;
+    padding: 15px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.timetable-table td {
+    padding: 12px;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 0.9rem;
+}
+
+.timetable-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.timetable-table tbody tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+/* No Data Message */
+.no-data {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    padding: 40px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin: 20px 0;
+}
+
+/* Instructions Section */
+.instructions {
+    background: #e3f2fd;
+    border-radius: 8px;
+    padding: 25px;
+    border: 1px solid #bbdefb;
+}
+
+.instructions h3 {
+    color: #1565c0;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.instructions h4 {
+    color: #1976d2;
+    margin: 20px 0 10px 0;
+    font-size: 1.1rem;
+}
+
+.instructions p {
+    color: #424242;
+    margin-bottom: 15px;
+    line-height: 1.6;
+}
+
+.instructions ul {
+    color: #424242;
+    margin-bottom: 20px;
+    padding-left: 20px;
+}
+
+.instructions li {
+    margin-bottom: 8px;
+    line-height: 1.5;
+}
+
+.instructions strong {
+    color: #1565c0;
+}
+
+/* Example Table */
+.example-table {
+    margin-top: 15px;
+    overflow-x: auto;
+}
+
+.example-table table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+}
+
+.example-table th {
+    background: #f5f5f5;
+    color: #333;
+    padding: 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border: 1px solid #e0e0e0;
+}
+
+.example-table td {
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .timetable-upload-container {
+        padding: 15px;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: stretch;
+    }
+    
+    .load-btn {
+        width: 100%;
+    }
+    
+    .timetable-table {
+        font-size: 0.8rem;
+    }
+    
+    .timetable-table th,
+    .timetable-table td {
+        padding: 8px 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .timetable-upload-container h2 {
+        font-size: 1.5rem;
+    }
+    
+    .upload-section,
+    .timetable-display-section,
+    .instructions {
+        padding: 15px;
+    }
+} 
