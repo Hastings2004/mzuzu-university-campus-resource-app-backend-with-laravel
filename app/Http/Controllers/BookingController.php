@@ -197,7 +197,8 @@ class BookingController extends Controller
                     $startTime->toDateTimeString(), 
                     $endTime->toDateTimeString()
                 );
-                
+                Log::info("suggestions");
+                Log::info($suggestions);
                 $result['suggestions'] = $suggestions;
                 $result['message'] .= ' Here are some alternative resources that might be available:';
             }

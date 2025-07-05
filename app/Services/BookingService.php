@@ -850,10 +850,13 @@ class BookingService
     public function suggestNearbySlots($resourceId, $start, $end, $intervals = [15, 30])
     {
         $suggestions = [];
+        $currentTime = now();
+        
         foreach ($intervals as $minutes) {
             $earlierStart = Carbon::parse($start)->subMinutes($minutes);
             $earlierEnd = Carbon::parse($end)->subMinutes($minutes);
-            if ($this->isResourceAvailable($resourceId, $earlierStart, $earlierEnd)) {
+            // Only suggest earlier slots if they are in the future
+            if ($earlierStart->gt($currentTime) && $this->isResourceAvailable($resourceId, $earlierStart, $earlierEnd)) {
                 $suggestions[] = [
                     'resource_id' => $resourceId,
                     'start_time' => $earlierStart->toDateTimeString(),
@@ -863,7 +866,8 @@ class BookingService
             }
             $laterStart = Carbon::parse($start)->addMinutes($minutes);
             $laterEnd = Carbon::parse($end)->addMinutes($minutes);
-            if ($this->isResourceAvailable($resourceId, $laterStart, $laterEnd)) {
+            // Only suggest later slots if they are in the future
+            if ($laterStart->gt($currentTime) && $this->isResourceAvailable($resourceId, $laterStart, $laterEnd)) {
                 $suggestions[] = [
                     'resource_id' => $resourceId,
                     'start_time' => $laterStart->toDateTimeString(),
@@ -882,6 +886,7 @@ class BookingService
     public function suggestSimilarResources($resource, $start, $end)
     {
         $thirtyDaysAgo = now()->subDays(30);
+        $currentTime = now();
         
         // Get the features of the requested resource
         $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
@@ -916,15 +921,16 @@ class BookingService
             $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
             $featureSimilarityScore = !empty($requestedFeatures) ? ($featureMatchCount / count($requestedFeatures)) * 100 : 0;
             
-            // Check availability
-            if ($this->isResourceAvailable($res->id, $start, $end)) {
+            // Check availability and ensure the suggested time is in the future
+            $suggestedStartTime = Carbon::parse($start);
+            if ($suggestedStartTime->gt($currentTime) && $this->isResourceAvailable($res->id, $start, $end)) {
                 $suggestions[] = [
                     'resource_id' => $res->id,
                     'resource_name' => $res->name,
                     'resource_location' => $res->location,
                     'resource_capacity' => $res->capacity,
                     'resource_category' => $res->category,
-                    'start_time' => Carbon::parse($start)->toDateTimeString(),
+                    'start_time' => $suggestedStartTime->toDateTimeString(),
                     'end_time' => Carbon::parse($end)->toDateTimeString(),
                     'type' => 'alternative_resource',
                     'recent_booking_count' => $usageStats[$res->id] ?? 0,
@@ -958,6 +964,7 @@ class BookingService
     public function suggestFeatureBasedAlternatives($resource, $start, $end, $minFeatureMatch = 0.3)
     {
         $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
+        $currentTime = now();
         
         if (empty($requestedFeatures)) {
             return []; // No features to match against
@@ -978,15 +985,16 @@ class BookingService
             $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
             $featureSimilarityScore = ($featureMatchCount / count($requestedFeatures)) * 100;
             
-            // Only include if feature match is above minimum threshold
-            if ($featureSimilarityScore >= ($minFeatureMatch * 100) && $this->isResourceAvailable($res->id, $start, $end)) {
+            // Only include if feature match is above minimum threshold and time is in the future
+            $suggestedStartTime = Carbon::parse($start);
+            if ($featureSimilarityScore >= ($minFeatureMatch * 100) && $suggestedStartTime->gt($currentTime) && $this->isResourceAvailable($res->id, $start, $end)) {
                 $suggestions[] = [
                     'resource_id' => $res->id,
                     'resource_name' => $res->name,
                     'resource_location' => $res->location,
                     'resource_capacity' => $res->capacity,
                     'resource_category' => $res->category,
-                    'start_time' => Carbon::parse($start)->toDateTimeString(),
+                    'start_time' => $suggestedStartTime->toDateTimeString(),
                     'end_time' => Carbon::parse($end)->toDateTimeString(),
                     'type' => 'feature_based_alternative',
                     'feature_similarity_score' => round($featureSimilarityScore, 1),
@@ -1218,6 +1226,7 @@ class BookingService
     public function getBookingSuggestions($user, $resource, $start, $end)
     {
         $suggestions = [];
+        $currentTime = now();
         
         // 1. Nearby slots for the same resource
         $suggestions = array_merge($suggestions, $this->suggestNearbySlots($resource->id, $start, $end));
@@ -1229,25 +1238,32 @@ class BookingService
         $featureBasedSuggestions = $this->suggestFeatureBasedAlternatives($resource, $start, $end);
         $suggestions = array_merge($suggestions, $featureBasedSuggestions);
         
-        // 4. Minor overlap allowed
-        if ($this->allowMinorOverlap($resource->id, $start, $end)) {
+        // 4. Minor overlap allowed (only if in the future)
+        $suggestedStartTime = Carbon::parse($start);
+        if ($suggestedStartTime->gt($currentTime) && $this->allowMinorOverlap($resource->id, $start, $end)) {
             $suggestions[] = [
                 'resource_id' => $resource->id,
                 'resource_name' => $resource->name,
                 'resource_location' => $resource->location,
                 'resource_capacity' => $resource->capacity,
                 'resource_category' => $resource->category,
-                'start_time' => Carbon::parse($start)->toDateTimeString(),
+                'start_time' => $suggestedStartTime->toDateTimeString(),
                 'end_time' => Carbon::parse($end)->toDateTimeString(),
                 'type' => 'minor_overlap_allowed',
                 'suggestion_reason' => 'Minor overlap allowed for this resource'
             ];
         }
         
-        // 5. Filter by user schedule
+        // 5. Filter suggestions to ensure they are in the future (greater than current time)
+        $suggestions = array_filter($suggestions, function($suggestion) use ($currentTime) {
+            $suggestionStartTime = Carbon::parse($suggestion['start_time']);
+            return $suggestionStartTime->gt($currentTime);
+        });
+        
+        // 6. Filter by user schedule
         $suggestions = $this->filterByUserSchedule($user, $suggestions);
 
-        // 6. Advanced: Score and sort by user preferences
+        // 7. Advanced: Score and sort by user preferences
         $preferences = $user->preferences ?? [];
         foreach ($suggestions as &$suggestion) {
             $score = 0;
