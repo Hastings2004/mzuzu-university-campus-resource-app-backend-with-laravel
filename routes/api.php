@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('/resources', ResourceController::class);    
     Route::apiResource('/bookings', BookingController::class);
     Route::get('/user/upcoming-booking', [BookingController::class, 'getUserBookings']);
+    Route::post('/admin/bookings', [BookingController::class, 'storeForUser']); // Admin booking for other users
     Route::get('/profile', [UserController::class, 'getProfile']);
     Route::put('/user/profile', [UserController::class, 'updateProfile']);
     Route::put('/users/{id}/update', [UserController::class, 'update']);

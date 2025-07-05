@@ -1337,4 +1337,195 @@ class BookingService
         
         return $suggestions;
     }
+
+    /**
+     * Create a booking for another user (admin functionality).
+     * This method allows admins to create bookings on behalf of other users.
+     *
+     * @param array $data
+     * @param User $adminUser The admin creating the booking
+     * @return array
+     */
+    public function createBookingForUser(array $data, User $adminUser): array
+    {
+        DB::beginTransaction();
+
+        try {
+            // Validate that the admin is actually an admin
+            if ($adminUser->user_type !== 'admin') {
+                throw new BookingException('Only administrators can create bookings for other users.');
+            }
+
+            // Get the target user
+            $targetUser = User::find($data['user_id']);
+            if (!$targetUser) {
+                throw new BookingException('Target user not found.');
+            }
+
+            $resource = $this->validateResource($data['resource_id']);
+            $startTime = Carbon::parse($data['start_time']);
+            $endTime = Carbon::parse($data['end_time']);
+
+            // Apply core business rule validations
+            $this->validateBookingTimes($startTime, $endTime);
+            $this->validateUserBookingLimit($targetUser); // Validate against target user's limits
+            $newBookingPriority = $this->determinePriority($targetUser, $data['booking_type']);
+
+            // Handle supporting document upload
+            $documentPath = null;
+            if (isset($data['supporting_document']) && $data['supporting_document'] instanceof \Illuminate\Http\UploadedFile) {
+                $document = $data['supporting_document'];
+                $documentName = time() . '_' . Str::random(10) . '.' . $document->getClientOriginalExtension();
+                $documentPath = Storage::putFileAs('public/booking_documents', $document, $documentName);
+                // Strip 'public/' prefix if present
+                if (strpos($documentPath, 'public/') === 0) {
+                    $documentPath = substr($documentPath, strlen('public/'));
+                }
+            }
+
+            // Check for conflicting bookings
+            $conflictingBookings = $this->findConflictingBookings(
+                $data['resource_id'],
+                $startTime,
+                $endTime
+            );
+
+            // Log conflict detection for debugging
+            Log::info('Admin booking conflict detection', [
+                'resource_id' => $data['resource_id'],
+                'start_time' => $startTime->toDateTimeString(),
+                'end_time' => $endTime->toDateTimeString(),
+                'conflicts_found' => $conflictingBookings->count(),
+                'target_user_id' => $targetUser->id,
+                'admin_user_id' => $adminUser->id,
+                'booking_type' => $data['booking_type'],
+                'new_priority' => $newBookingPriority
+            ]);
+
+            $preemptableConflicts = collect();
+            $nonPreemptableConflicts = collect();
+
+            foreach ($conflictingBookings as $conflict) {
+                if (!$conflict->user) {
+                    Log::warning("Conflicting booking {$conflict->id} has no associated user. Skipping priority determination for this conflict.");
+                    $nonPreemptableConflicts->push($conflict); 
+                    continue;
+                }
+                $conflictPriority = $this->determinePriority($conflict->user, $conflict->booking_type);
+
+                Log::info('Admin booking conflict priority comparison', [
+                    'conflict_id' => $conflict->id,
+                    'conflict_user' => $conflict->user->first_name . ' ' . $conflict->user->last_name,
+                    'conflict_booking_type' => $conflict->booking_type,
+                    'conflict_priority' => $conflictPriority,
+                    'new_priority' => $newBookingPriority,
+                    'is_preemptable' => $newBookingPriority > $conflictPriority
+                ]);
+
+                if ($newBookingPriority > $conflictPriority) {
+                    $preemptableConflicts->push($conflict);
+                } else {
+                    $nonPreemptableConflicts->push($conflict);
+                }
+            }
+
+            // Check if resource capacity is exceeded by non-preemptable bookings
+            if ($resource->capacity == 1 && $nonPreemptableConflicts->isNotEmpty()) {
+                $suggestions = $this->getBookingSuggestions($targetUser, $resource, $startTime, $endTime);
+                return [
+                    'success' => false,
+                    'message' => 'The resource is not available due to a higher or equal priority booking.',
+                    'booking' => null,
+                    'status_code' => 409,
+                    'suggestions' => $suggestions
+                ];
+            }
+
+            // For resources with capacity > 1, check if the combined count of new booking + non-preemptable conflicts exceeds capacity
+            if ($resource->capacity > 1 && ($nonPreemptableConflicts->count() + 1 > $resource->capacity)) {
+                $suggestions = $this->getBookingSuggestions($targetUser, $resource, $startTime, $endTime);
+                return [
+                    'success' => false,
+                    'message' => 'Resource capacity is fully booked by higher or equal priority bookings.',
+                    'booking' => null,
+                    'status_code' => 409,
+                    'suggestions' => $suggestions
+                ];
+            }
+
+            // All checks passed, proceed with booking.
+                
+            foreach ($preemptableConflicts as $preemptedBooking) {
+                $preemptedBooking->status = self::STATUS_PREEMPTED; 
+                $preemptedBooking->cancellation_reason = 'Preempted by admin booking (Ref: ' . $this->generateBookingReference() . ')';
+                $preemptedBooking->cancelled_at = Carbon::now();
+                $preemptedBooking->save();
+
+                // Notify the user whose booking was preempted
+                if ($preemptedBooking->user) {
+                    $preemptedBooking->user->notify(new \App\Notifications\BookingPreempted($preemptedBooking));
+                }
+            }
+
+            // Create the new booking for the target user
+            $booking = $targetUser->bookings()->create([
+                "booking_reference" => $this->generateBookingReference(),
+                "resource_id" => $data['resource_id'],
+                "start_time" => $startTime,
+                "end_time" => $endTime,                
+                "purpose" => $data['purpose'] ?? null,
+                "booking_type" => $data['booking_type'],
+                "priority" => $newBookingPriority,
+                "supporting_document_path" => $documentPath,
+                "status" => $data['status'] ?? 'approved', // Admin bookings can be auto-approved
+            ]);
+
+            // Notify the target user about their booking
+            if ($targetUser) {
+                $targetUser->notify(new \App\Notifications\BookingCreated($booking));
+            }
+
+            // Notify all admins (excluding the admin who created the booking)
+            $adminUsers = User::where('user_type', 'admin')->where('id', '!=', $adminUser->id)->get();
+            foreach ($adminUsers as $admin) {
+                $admin->notify(new \App\Notifications\BookingCreatedAdmin($booking));
+            }
+
+            // Log the admin action
+            Log::info('Admin created booking for user', [
+                'admin_id' => $adminUser->id,
+                'admin_name' => $adminUser->first_name . ' ' . $adminUser->last_name,
+                'target_user_id' => $targetUser->id,
+                'target_user_name' => $targetUser->first_name . ' ' . $targetUser->last_name,
+                'booking_id' => $booking->id,
+                'resource_id' => $booking->resource_id,
+                'start_time' => $booking->start_time,
+                'end_time' => $booking->end_time
+            ]);
+
+            DB::commit();
+
+            return [
+                'success' => true,
+                'message' => 'Booking created successfully for ' . $targetUser->first_name . ' ' . $targetUser->last_name . '.',
+                'booking' => $booking->load('resource', 'user'), 
+                'status_code' => 201
+            ];
+        } catch (BookingException $e) {
+            DB::rollBack();
+            Log::warning('Admin booking validation failed: ' . $e->getMessage(), [
+                'admin_user_id' => $adminUser->id ?? 'unknown',
+                'target_user_id' => $data['user_id'] ?? 'unknown'
+            ]);
+            return ['success' => false, 'message' => $e->getMessage(), 'booking' => null, 'status_code' => 400];
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Admin booking creation failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(), 
+                'admin_user_id' => $adminUser->id ?? 'unknown',
+                'target_user_id' => $data['user_id'] ?? 'unknown'
+            ]);
+            return ['success' => false, 'message' => 'An unexpected error occurred while creating the booking.', 'booking' => null, 'status_code' => 500];
+        }
+    }
 }

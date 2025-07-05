@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Booking;
 use App\Http\Requests\StoreBookingRequest; // Make sure this Form Request exists
 use App\Http\Requests\UpdateBookingRequest; // Make sure this Form Request exists
+use App\Http\Requests\AdminStoreBookingRequest; // Admin booking request
 use App\Models\Resource; // Potentially still needed for some checks, but less so now
 use App\Notifications\BookingCreated;
 use App\Services\BookingService;
@@ -235,6 +236,44 @@ class BookingController extends Controller
         if ($result['success'] && isset($result['booking'])) {
             $user->notify(new BookingCreated($result['booking']));
         }
+
+        $response = [
+            'success' => $result['success'],
+            'message' => $result['message'],
+            'booking' => $result['booking'] ?? null,
+        ];
+        if (isset($result['suggestions'])) {
+            $response['suggestions'] = $result['suggestions'];
+        }
+
+        return response()->json($response, $result['status_code']);
+    }
+
+    /**
+     * Store a booking for another user (admin functionality).
+     * This method allows admins to create bookings on behalf of other users.
+     *
+     * @param AdminStoreBookingRequest $request
+     * @return JsonResponse
+     */
+    public function storeForUser(AdminStoreBookingRequest $request): JsonResponse
+    {
+        $adminUser = $request->user();
+        $validatedData = $request->validated();
+        
+        // Ensure the supporting document file is included in the data
+        if ($request->hasFile('supporting_document')) {
+            $validatedData['supporting_document'] = $request->file('supporting_document');
+        }
+        
+        Log::info('Admin creating booking for user:', [
+            'admin_id' => $adminUser->id,
+            'admin_name' => $adminUser->first_name . ' ' . $adminUser->last_name,
+            'target_user_id' => $validatedData['user_id'],
+            'booking_data' => $request->except(['supporting_document'])
+        ]);
+
+        $result = $this->bookingService->createBookingForUser($validatedData, $adminUser);
 
         $response = [
             'success' => $result['success'],
