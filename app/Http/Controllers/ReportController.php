@@ -126,4 +126,70 @@ class ReportController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get the upcoming bookings report.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function getUpcomingBookings(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+
+        // Authorization: Only admins can access reports
+        if (!$user || $user->user_type !== 'admin') {
+            return response()->json([
+                "success" => false,
+                "message" => "Unauthorized to access reports."
+            ], 403);
+        }
+
+        // Validate incoming request parameters
+        $request->validate([
+            'start_date' => 'nullable|date_format:Y-m-d',
+            'end_date' => 'nullable|date_format:Y-m-d|after_or_equal:start_date',
+            'resource_type' => 'nullable|string',
+            'resource_id' => 'nullable|integer|exists:resources,id',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'user_type' => 'nullable|string|in:staff,student,admin',
+            'status' => 'nullable|string|in:approved,pending,in_use',
+            'limit' => 'nullable|integer|min:1|max:1000',
+        ]);
+
+        // Prepare filters
+        $filters = $request->only([
+            'start_date',
+            'end_date', 
+            'resource_type',
+            'resource_id',
+            'user_id',
+            'user_type',
+            'status',
+            'limit'
+        ]);
+
+        // Remove empty filters
+        $filters = array_filter($filters, function ($value) {
+            return $value !== null && $value !== '';
+        });
+
+        $report = $this->reportService->getUpcomingBookingsReport($filters);
+
+        if ($report['success']) {
+            return response()->json([
+                "success" => true,
+                "message" => "Upcoming bookings report generated successfully.",
+                "report" => $report['report'],
+                "period" => $report['period'],
+                "filters_applied" => $report['filters_applied'] ?? [],
+                "total_bookings" => $report['total_bookings'] ?? 0
+            ], 200);
+        } else {
+            return response()->json([
+                "success" => false,
+                "message" => $report['message']
+            ], 500);
+        }
+    }
 }

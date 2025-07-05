@@ -721,4 +721,255 @@ class ReportService
             'filters_applied' => $filters
         ];
     }
+
+    /**
+     * Generate an upcoming bookings report with comprehensive filtering options.
+     *
+     * @param array $filters Array of filter parameters
+     * @return array Report data with success status and upcoming bookings
+     */
+    public function getUpcomingBookingsReport(array $filters = []): array
+    {
+        try {
+            $this->logUpcomingBookingsRequest($filters);
+            
+            $dateRange = $this->prepareUpcomingDateRange($filters);
+            $bookings = $this->getFilteredUpcomingBookings($filters, $dateRange);
+            
+            $reportData = $this->generateUpcomingBookingsData($bookings, $filters, $dateRange);
+
+            return $this->createUpcomingBookingsSuccessResponse($reportData, $dateRange, $filters);
+
+        } catch (\Exception $e) {
+            Log::error("Error generating upcoming bookings report: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'filters' => $filters
+            ]);
+            
+            return $this->createErrorResponse(
+                'An error occurred while generating the upcoming bookings report. Please try again.',
+                $this->prepareUpcomingDateRange($filters)
+            );
+        }
+    }
+
+    /**
+     * Log the upcoming bookings report request for debugging purposes.
+     */
+    private function logUpcomingBookingsRequest(array $filters): void
+    {
+        Log::debug("Upcoming bookings report request received", [
+            'filters' => $filters
+        ]);
+    }
+
+    /**
+     * Prepare date range for upcoming bookings (defaults to future dates).
+     */
+    private function prepareUpcomingDateRange(array $filters): array
+    {
+        $start = isset($filters['start_date']) 
+            ? Carbon::parse($filters['start_date'])->startOfDay()
+            : Carbon::now()->startOfDay();
+            
+        $end = isset($filters['end_date']) 
+            ? Carbon::parse($filters['end_date'])->endOfDay()
+            : Carbon::now()->addDays(30)->endOfDay(); // Default to next 30 days
+
+        // Ensure we're only looking at future bookings
+        if ($start->isPast()) {
+            $start = Carbon::now()->startOfDay();
+        }
+
+        Log::debug("Upcoming bookings date range prepared", [
+            'start_formatted' => $start->toDateTimeString(),
+            'end_formatted' => $end->toDateTimeString()
+        ]);
+
+        return ['start' => $start, 'end' => $end];
+    }
+
+    /**
+     * Get filtered upcoming bookings based on provided filters.
+     */
+    private function getFilteredUpcomingBookings(array $filters, array $dateRange): \Illuminate\Database\Eloquent\Collection
+    {
+        $query = Booking::with([
+            'user:id,first_name,last_name,email,user_type',
+            'resource:id,name,description,location,category,capacity',
+            'approvedBy:id,first_name,last_name',
+            'rejectedBy:id,first_name,last_name',
+            'cancelledBy:id,first_name,last_name'
+        ])
+        ->where('start_time', '>=', $dateRange['start'])
+        ->where('start_time', '<=', $dateRange['end'])
+        ->whereIn('status', ['approved', 'pending', 'in_use']);
+
+        // Apply resource filters
+        if (isset($filters['resource_id'])) {
+            $query->where('resource_id', $filters['resource_id']);
+        }
+
+        if (isset($filters['resource_type'])) {
+            $query->whereHas('resource', function ($q) use ($filters) {
+                $q->where('category', $filters['resource_type']);
+            });
+        }
+
+        // Apply user filters
+        if (isset($filters['user_id'])) {
+            $query->where('user_id', $filters['user_id']);
+        }
+
+        if (isset($filters['user_type'])) {
+            $query->whereHas('user', function ($q) use ($filters) {
+                $q->where('user_type', $filters['user_type']);
+            });
+        }
+
+        // Apply status filter
+        if (isset($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        // Apply limit
+        $limit = isset($filters['limit']) ? (int) $filters['limit'] : 100;
+        $query->limit($limit);
+
+        return $query->orderBy('start_time', 'asc')->get();
+    }
+
+    /**
+     * Generate comprehensive upcoming bookings data.
+     */
+    private function generateUpcomingBookingsData(\Illuminate\Database\Eloquent\Collection $bookings, array $filters, array $dateRange): array
+    {
+        $bookingsData = [];
+        $summary = $this->calculateUpcomingBookingsSummary($bookings);
+
+        foreach ($bookings as $booking) {
+            $bookingsData[] = [
+                'id' => $booking->id,
+                'booking_reference' => $booking->booking_reference,
+                'resource' => [
+                    'id' => $booking->resource->id,
+                    'name' => $booking->resource->name,
+                    'description' => $booking->resource->description,
+                    'location' => $booking->resource->location,
+                    'category' => $booking->resource->category,
+                    'capacity' => $booking->resource->capacity,
+                ],
+                'user' => [
+                    'id' => $booking->user->id,
+                    'name' => $booking->user->first_name . ' ' . $booking->user->last_name,
+                    'email' => $booking->user->email,
+                    'user_type' => $booking->user->user_type,
+                ],
+                'schedule' => [
+                    'start_time' => $booking->start_time->toISOString(),
+                    'end_time' => $booking->end_time->toISOString(),
+                    'date' => $booking->start_time->format('Y-m-d'),
+                    'start_time_formatted' => $booking->start_time->format('H:i'),
+                    'end_time_formatted' => $booking->end_time->format('H:i'),
+                    'duration_hours' => round($booking->start_time->diffInHours($booking->end_time), 2),
+                    'duration_minutes' => $booking->start_time->diffInMinutes($booking->end_time),
+                ],
+                'details' => [
+                    'purpose' => $booking->purpose,
+                    'booking_type' => $booking->booking_type,
+                    'status' => $booking->status,
+                    'priority' => $booking->priority,
+                ],
+                'approval_info' => [
+                    'approved_by' => $booking->approvedBy ? [
+                        'id' => $booking->approvedBy->id,
+                        'name' => $booking->approvedBy->first_name . ' ' . $booking->approvedBy->last_name,
+                    ] : null,
+                    'approved_at' => $booking->approved_at ? $booking->approved_at->toISOString() : null,
+                    'rejected_by' => $booking->rejectedBy ? [
+                        'id' => $booking->rejectedBy->id,
+                        'name' => $booking->rejectedBy->first_name . ' ' . $booking->rejectedBy->last_name,
+                    ] : null,
+                    'rejected_at' => $booking->rejected_at ? $booking->rejected_at->toISOString() : null,
+                    'rejection_reason' => $booking->rejection_reason,
+                ],
+                'cancellation_info' => [
+                    'cancelled_by' => $booking->cancelledBy ? [
+                        'id' => $booking->cancelledBy->id,
+                        'name' => $booking->cancelledBy->first_name . ' ' . $booking->cancelledBy->last_name,
+                    ] : null,
+                    'cancelled_at' => $booking->cancelled_at ? $booking->cancelled_at->toISOString() : null,
+                    'cancellation_reason' => $booking->cancellation_reason,
+                ],
+                'document_info' => [
+                    'has_supporting_document' => !empty($booking->supporting_document_path),
+                    'document_path' => $booking->supporting_document_path,
+                ],
+                'created_at' => $booking->created_at->toISOString(),
+                'updated_at' => $booking->updated_at->toISOString(),
+            ];
+        }
+
+        return [
+            'bookings' => $bookingsData,
+            'summary' => $summary,
+            'filters_applied' => $filters,
+        ];
+    }
+
+    /**
+     * Calculate summary statistics for upcoming bookings.
+     */
+    private function calculateUpcomingBookingsSummary(\Illuminate\Database\Eloquent\Collection $bookings): array
+    {
+        $totalBookings = $bookings->count();
+        $totalHours = $bookings->sum(function ($booking) {
+            return $booking->start_time->diffInHours($booking->end_time);
+        });
+
+        $statusBreakdown = $bookings->groupBy('status')->map(function ($group) {
+            return $group->count();
+        });
+
+        $resourceTypeBreakdown = $bookings->groupBy('resource.category')->map(function ($group) {
+            return $group->count();
+        });
+
+        $userTypeBreakdown = $bookings->groupBy('user.user_type')->map(function ($group) {
+            return $group->count();
+        });
+
+        $bookingTypeBreakdown = $bookings->groupBy('booking_type')->map(function ($group) {
+            return $group->count();
+        });
+
+        return [
+            'total_bookings' => $totalBookings,
+            'total_hours' => round($totalHours, 2),
+            'average_duration_hours' => $totalBookings > 0 ? round($totalHours / $totalBookings, 2) : 0,
+            'status_breakdown' => $statusBreakdown,
+            'resource_type_breakdown' => $resourceTypeBreakdown,
+            'user_type_breakdown' => $userTypeBreakdown,
+            'booking_type_breakdown' => $bookingTypeBreakdown,
+        ];
+    }
+
+    /**
+     * Create success response for upcoming bookings report.
+     */
+    private function createUpcomingBookingsSuccessResponse(array $reportData, array $dateRange, array $filters): array
+    {
+        return [
+            'success' => true,
+            'report' => $reportData,
+            'period' => [
+                'start_date' => $dateRange['start']->format('Y-m-d'),
+                'end_date' => $dateRange['end']->format('Y-m-d'),
+                'start_datetime' => $dateRange['start']->toISOString(),
+                'end_datetime' => $dateRange['end']->toISOString(),
+            ],
+            'filters_applied' => $filters,
+            'total_bookings' => $reportData['summary']['total_bookings'],
+        ];
+    }
 } 

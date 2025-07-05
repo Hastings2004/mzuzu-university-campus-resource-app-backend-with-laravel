@@ -70,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/bookings/bulk-approve', [BookingApprovalController::class, 'bulkApprove']);
     Route::get('/reports/resource-utilization', [ReportController::class, 'getResourceUtilization']);
     Route::get('/reports/booking-summary', [ReportController::class, 'getBookingSummary']);
+    Route::get('/reports/upcoming-bookings', [ReportController::class, 'getUpcomingBookings']);
     Route::post('/bookings/{id}/in_use', [BookingApprovalController::class, 'inUseApproval']);
     Route::post('/bookings/{id}/complete', [BookingApprovalController::class, 'complete']);
     Route::prefix('timetable')->group(function () {
