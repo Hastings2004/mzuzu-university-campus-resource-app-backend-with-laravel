@@ -10,6 +10,8 @@ export default function TimetableUploadForm() {
     const [messageType, setMessageType] = useState(''); // 'success' or 'error'
     const [timetableData, setTimetableData] = useState([]);
     const [loadingTimetable, setLoadingTimetable] = useState(false);
+    const [studyModeFilter, setStudyModeFilter] = useState('');
+    const [deliveryModeFilter, setDeliveryModeFilter] = useState('');
 
     const handleFileSelect = (event) => {
         const file = event.target.files[0];
@@ -156,13 +158,34 @@ export default function TimetableUploadForm() {
             <div className="timetable-display-section">
                 <div className="section-header">
                     <h3>Current Timetable</h3>
-                    <button 
-                        onClick={loadTimetable}
-                        disabled={loadingTimetable}
-                        className="load-btn"
-                    >
-                        {loadingTimetable ? 'Loading...' : 'Load Timetable'}
-                    </button>
+                    <div className="filter-controls">
+                        <select 
+                            value={studyModeFilter} 
+                            onChange={(e) => setStudyModeFilter(e.target.value)}
+                            className="filter-select"
+                        >
+                            <option value="">All Study Modes</option>
+                            <option value="full-time">Full Time</option>
+                            <option value="part-time">Part Time</option>
+                        </select>
+                        <select 
+                            value={deliveryModeFilter} 
+                            onChange={(e) => setDeliveryModeFilter(e.target.value)}
+                            className="filter-select"
+                        >
+                            <option value="">All Delivery Modes</option>
+                            <option value="face-to-face">Face to Face</option>
+                            <option value="online">Online</option>
+                            <option value="hybrid">Hybrid</option>
+                        </select>
+                        <button 
+                            onClick={loadTimetable}
+                            disabled={loadingTimetable}
+                            className="load-btn"
+                        >
+                            {loadingTimetable ? 'Loading...' : 'Load Timetable'}
+                        </button>
+                    </div>
                 </div>
 
                 {timetableData.length > 0 && (
@@ -178,6 +201,9 @@ export default function TimetableUploadForm() {
                                     <th>End Time</th>
                                     <th>Class Section</th>
                                     <th>Semester</th>
+                                    <th>Study Mode</th>
+                                    <th>Delivery Mode</th>
+                                    <th>Program Type</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -191,6 +217,9 @@ export default function TimetableUploadForm() {
                                         <td>{formatTime(entry.end_time)}</td>
                                         <td>{entry.class_section}</td>
                                         <td>{entry.semester}</td>
+                                        <td>{entry.study_mode || 'N/A'}</td>
+                                        <td>{entry.delivery_mode || 'N/A'}</td>
+                                        <td>{entry.program_type || 'N/A'}</td>
                                     </tr>
                                 ))}
                             </tbody>

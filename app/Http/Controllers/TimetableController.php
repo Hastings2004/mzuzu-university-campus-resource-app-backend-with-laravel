@@ -42,6 +42,7 @@ class TimetableController extends Controller
         $file = $request->file('file');
         $filePath = $file->storeAs('temp_timetables_imports', 'timetable_import_' . time() . '.' . $file->extension(), 'local');
         $fullFilePath = storage_path('app/' . $filePath);
+        Log::info("time". $fullFilePath);
 
         try {
             // Clear existing timetable data before importing new one (optional, based on requirement)
@@ -87,6 +88,48 @@ class TimetableController extends Controller
             }
         }
 
+        // Filter by study mode (full-time/part-time)
+        if ($request->has('study_mode')) {
+            $studyMode = strtolower($request->study_mode);
+            if (in_array($studyMode, ['full-time', 'part-time'])) {
+                $query->where('study_mode', $studyMode);
+            }
+        }
+
+        // Filter by delivery mode (face-to-face/online/hybrid)
+        if ($request->has('delivery_mode')) {
+            $deliveryMode = strtolower($request->delivery_mode);
+            if (in_array($deliveryMode, ['face-to-face', 'online', 'hybrid'])) {
+                $query->where('delivery_mode', $deliveryMode);
+            }
+        }
+
+        // Filter by program type
+        if ($request->has('program_type')) {
+            $query->where('program_type', $request->program_type);
+        }
+
+        // Use scopes for common filters
+        if ($request->has('full_time') && $request->boolean('full_time')) {
+            $query->fullTime();
+        }
+
+        if ($request->has('part_time') && $request->boolean('part_time')) {
+            $query->partTime();
+        }
+
+        if ($request->has('face_to_face') && $request->boolean('face_to_face')) {
+            $query->faceToFace();
+        }
+
+        if ($request->has('online') && $request->boolean('online')) {
+            $query->online();
+        }
+
+        if ($request->has('hybrid') && $request->boolean('hybrid')) {
+            $query->hybrid();
+        }
+
         // Order by start_time for better readability
         $timetables = $query->orderBy('start_time')->get();
 
@@ -107,6 +150,9 @@ class TimetableController extends Controller
                 'end_time' => $item->end_time,
                 'semester' => $item->semester,
                 'class_section' => $item->class_section,
+                'study_mode' => $item->study_mode,
+                'delivery_mode' => $item->delivery_mode,
+                'program_type' => $item->program_type,
                 // Add any other relevant fields you want the frontend to receive
             ];
         });

@@ -101,7 +101,11 @@ class ReportService
      */
     private function calculateReportPeriod(array $dateRange): array
     {
-        $durationMinutes = abs($dateRange['end']->diffInMinutes($dateRange['start'], false));
+        // Calculate duration in minutes between start and end dates
+        $durationMinutes = $dateRange['end']->diffInMinutes($dateRange['start'], false);
+        
+        // Ensure we get a positive value
+        $durationMinutes = abs($durationMinutes);
         $durationHours = $durationMinutes / 60;
 
         // Handle edge case of zero duration
@@ -112,7 +116,9 @@ class ReportService
 
         Log::debug("Report period calculated", [
             'duration_minutes' => $durationMinutes,
-            'duration_hours' => $durationHours
+            'duration_hours' => $durationHours,
+            'start_date' => $dateRange['start']->toDateTimeString(),
+            'end_date' => $dateRange['end']->toDateTimeString()
         ]);
 
         return [
@@ -970,6 +976,394 @@ class ReportService
             ],
             'filters_applied' => $filters,
             'total_bookings' => $reportData['summary']['total_bookings'],
+        ];
+    }
+
+    /**
+     * Generate a comprehensive canceled bookings report with filters and breakdowns.
+     *
+     * @param array $filters Array containing filter parameters
+     * @return array Report data with success status and summary metrics
+     */
+    public function getCanceledBookingsReport(array $filters = []): array
+    {
+        try {
+            $this->logCanceledBookingsRequest($filters);
+            
+            $dateRange = $this->prepareDateRange(
+                $filters['start_date'] ?? null,
+                $filters['end_date'] ?? null
+            );
+            
+            if (!$this->isValidDateRange($dateRange)) {
+                return $this->createErrorResponse('Start date cannot be after end date.', $dateRange);
+            }
+
+            $canceledBookings = $this->getFilteredCanceledBookings($filters, $dateRange);
+            $totalBookings = $this->getTotalBookingsInPeriod($filters, $dateRange);
+            $reportData = $this->generateCanceledBookingsData($canceledBookings, $totalBookings, $filters, $dateRange);
+
+            return $this->createCanceledBookingsSuccessResponse($reportData, $dateRange, $filters);
+
+        } catch (\Exception $e) {
+            Log::error("Error generating canceled bookings report: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'filters' => $filters
+            ]);
+            
+            return $this->createErrorResponse(
+                'An error occurred while generating the canceled bookings report. Please try again.',
+                $this->prepareDateRange($filters['start_date'] ?? null, $filters['end_date'] ?? null)
+            );
+        }
+    }
+
+    /**
+     * Log the canceled bookings report request for debugging purposes.
+     */
+    private function logCanceledBookingsRequest(array $filters): void
+    {
+        Log::debug("Canceled bookings report request received", [
+            'filters' => $filters
+        ]);
+    }
+
+    /**
+     * Get filtered canceled bookings based on provided criteria.
+     */
+    private function getFilteredCanceledBookings(array $filters, array $dateRange): \Illuminate\Database\Eloquent\Collection
+    {
+        $query = Booking::with([
+            'user:id,first_name,last_name,email,user_type',
+            'resource:id,name,description,location,category,capacity',
+            'cancelledBy:id,first_name,last_name'
+        ])
+        ->where('status', Booking::STATUS_CANCELLED);
+
+        // Apply date range filter for cancellation date
+        $query->where(function (Builder $q) use ($dateRange) {
+            $q->whereBetween('cancelled_at', [$dateRange['start'], $dateRange['end']])
+              ->orWhere(function (Builder $q) use ($dateRange) {
+                  $q->where('cancelled_at', '>=', $dateRange['start'])
+                    ->where('cancelled_at', '<=', $dateRange['end']);
+              });
+        });
+
+        // Apply resource type filter
+        if (!empty($filters['resource_type'])) {
+            $query->whereHas('resource', function (Builder $q) use ($filters) {
+                $q->where('category', $filters['resource_type']);
+            });
+        }
+
+        // Apply specific resource filter
+        if (!empty($filters['resource_id'])) {
+            $query->where('resource_id', $filters['resource_id']);
+        }
+
+        // Apply user filter
+        if (!empty($filters['user_id'])) {
+            $query->where('user_id', $filters['user_id']);
+        }
+
+        // Apply user type filter
+        if (!empty($filters['user_type'])) {
+            $query->whereHas('user', function (Builder $q) use ($filters) {
+                $q->where('user_type', $filters['user_type']);
+            });
+        }
+
+        return $query->orderBy('cancelled_at', 'desc')->get();
+    }
+
+    /**
+     * Get total bookings in the period for percentage calculation.
+     */
+    private function getTotalBookingsInPeriod(array $filters, array $dateRange): int
+    {
+        $query = Booking::where(function (Builder $q) use ($dateRange) {
+            $q->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
+              ->orWhere(function (Builder $q) use ($dateRange) {
+                  $q->where('created_at', '>=', $dateRange['start'])
+                    ->where('created_at', '<=', $dateRange['end']);
+              });
+        });
+
+        // Apply resource type filter
+        if (!empty($filters['resource_type'])) {
+            $query->whereHas('resource', function (Builder $q) use ($filters) {
+                $q->where('category', $filters['resource_type']);
+            });
+        }
+
+        // Apply specific resource filter
+        if (!empty($filters['resource_id'])) {
+            $query->where('resource_id', $filters['resource_id']);
+        }
+
+        // Apply user filter
+        if (!empty($filters['user_id'])) {
+            $query->where('user_id', $filters['user_id']);
+        }
+
+        // Apply user type filter
+        if (!empty($filters['user_type'])) {
+            $query->whereHas('user', function (Builder $q) use ($filters) {
+                $q->where('user_type', $filters['user_type']);
+            });
+        }
+
+        return $query->count();
+    }
+
+    /**
+     * Generate canceled bookings data with metrics and breakdowns.
+     */
+    private function generateCanceledBookingsData(\Illuminate\Database\Eloquent\Collection $canceledBookings, int $totalBookings, array $filters, array $dateRange): array
+    {
+        // Calculate metrics
+        $metrics = $this->calculateCanceledBookingsMetrics($canceledBookings, $totalBookings);
+        
+        // Generate breakdowns
+        $breakdowns = $this->generateCanceledBookingsBreakdowns($canceledBookings, $filters);
+
+        // Add detailed canceled bookings
+        $detailedCanceledBookings = $canceledBookings->map(function($booking) {
+            return [
+                'id' => $booking->id,
+                'booking_reference' => $booking->booking_reference,
+                'user' => [
+                    'id' => $booking->user->id,
+                    'name' => $booking->user->first_name . ' ' . $booking->user->last_name,
+                    'email' => $booking->user->email,
+                    'user_type' => $booking->user->user_type,
+                ],
+                'resource' => [
+                    'id' => $booking->resource->id,
+                    'name' => $booking->resource->name,
+                    'description' => $booking->resource->description,
+                    'location' => $booking->resource->location,
+                    'category' => $booking->resource->category,
+                    'capacity' => $booking->resource->capacity,
+                ],
+                'original_schedule' => [
+                    'start_time' => $booking->start_time->toISOString(),
+                    'end_time' => $booking->end_time->toISOString(),
+                    'date' => $booking->start_time->format('Y-m-d'),
+                    'start_time_formatted' => $booking->start_time->format('H:i'),
+                    'end_time_formatted' => $booking->end_time->format('H:i'),
+                    'duration_hours' => round($booking->start_time->diffInHours($booking->end_time), 2),
+                ],
+                'cancellation_details' => [
+                    'cancelled_by' => $booking->cancelledBy ? [
+                        'id' => $booking->cancelledBy->id,
+                        'name' => $booking->cancelledBy->first_name . ' ' . $booking->cancelledBy->last_name,
+                    ] : null,
+                    'cancelled_at' => $booking->cancelled_at ? $booking->cancelled_at->toISOString() : null,
+                    'cancellation_reason' => $booking->cancellation_reason,
+                    'refund_amount' => $booking->refund_amount,
+                ],
+                'booking_details' => [
+                    'purpose' => $booking->purpose,
+                    'booking_type' => $booking->booking_type,
+                    'priority' => $booking->priority,
+                ],
+                'created_at' => $booking->created_at->toISOString(),
+                'updated_at' => $booking->updated_at->toISOString(),
+            ];
+        });
+
+        return [
+            'metrics' => $metrics,
+            'breakdowns' => $breakdowns,
+            'canceled_bookings' => $detailedCanceledBookings,
+        ];
+    }
+
+    /**
+     * Calculate canceled bookings metrics.
+     */
+    private function calculateCanceledBookingsMetrics(\Illuminate\Database\Eloquent\Collection $canceledBookings, int $totalBookings): array
+    {
+        $totalCancelations = $canceledBookings->count();
+        $cancellationPercentage = $totalBookings > 0 ? round(($totalCancelations / $totalBookings) * 100, 2) : 0;
+        
+        // Calculate total refund amount
+        $totalRefundAmount = $canceledBookings->sum('refund_amount');
+        
+        // Calculate average time between booking creation and cancellation
+        $totalCancellationTime = 0;
+        $validCancelations = 0;
+        
+        foreach ($canceledBookings as $booking) {
+            if ($booking->cancelled_at && $booking->created_at) {
+                $cancellationTime = $booking->cancelled_at->diffInHours($booking->created_at);
+                $totalCancellationTime += $cancellationTime;
+                $validCancelations++;
+            }
+        }
+        
+        $averageCancellationTime = $validCancelations > 0 ? round($totalCancellationTime / $validCancelations, 2) : 0;
+        
+        // Count unique users who canceled
+        $uniqueUsersCanceled = $canceledBookings->pluck('user_id')->unique()->count();
+        
+        // Count unique resources that were canceled
+        $uniqueResourcesCanceled = $canceledBookings->pluck('resource_id')->unique()->count();
+
+        return [
+            'total_cancelations' => $totalCancelations,
+            'cancellation_percentage' => $cancellationPercentage,
+            'total_refund_amount' => round($totalRefundAmount, 2),
+            'average_cancellation_time_hours' => $averageCancellationTime,
+            'unique_users_canceled' => $uniqueUsersCanceled,
+            'unique_resources_canceled' => $uniqueResourcesCanceled,
+            'total_bookings_in_period' => $totalBookings,
+        ];
+    }
+
+    /**
+     * Generate canceled bookings breakdowns by different criteria.
+     */
+    private function generateCanceledBookingsBreakdowns(\Illuminate\Database\Eloquent\Collection $canceledBookings, array $filters): array
+    {
+        $breakdowns = [];
+
+        // Breakdown by Resource
+        $breakdowns['by_resource'] = $this->generateCanceledResourceBreakdown($canceledBookings);
+        
+        // Breakdown by User Type
+        $breakdowns['by_user_type'] = $this->generateCanceledUserTypeBreakdown($canceledBookings);
+        
+        // Breakdown by Cancellation Reason
+        $breakdowns['by_cancellation_reason'] = $this->generateCancellationReasonBreakdown($canceledBookings);
+        
+        // Breakdown by Time Periods
+        $breakdowns['by_day'] = $this->generateCanceledTimeBreakdown($canceledBookings, 'day');
+        $breakdowns['by_week'] = $this->generateCanceledTimeBreakdown($canceledBookings, 'week');
+        $breakdowns['by_month'] = $this->generateCanceledTimeBreakdown($canceledBookings, 'month');
+
+        return $breakdowns;
+    }
+
+    /**
+     * Generate breakdown by resource for canceled bookings.
+     */
+    private function generateCanceledResourceBreakdown(\Illuminate\Database\Eloquent\Collection $canceledBookings): array
+    {
+        $resourceBreakdown = $canceledBookings->groupBy('resource_id')->map(function ($resourceBookings, $resourceId) {
+            $resource = $resourceBookings->first()->resource;
+            $totalRefundAmount = $resourceBookings->sum('refund_amount');
+
+            return [
+                'resource_id' => $resourceId,
+                'resource_name' => $resource ? $resource->name : 'Unknown Resource',
+                'resource_category' => $resource ? $resource->category : 'Unknown',
+                'total_cancelations' => $resourceBookings->count(),
+                'total_refund_amount' => round($totalRefundAmount, 2),
+                'unique_users_canceled' => $resourceBookings->pluck('user_id')->unique()->count(),
+                'average_refund_amount' => $resourceBookings->count() > 0 ? round($totalRefundAmount / $resourceBookings->count(), 2) : 0,
+            ];
+        })->values()->toArray();
+
+        return $resourceBreakdown;
+    }
+
+    /**
+     * Generate breakdown by user type for canceled bookings.
+     */
+    private function generateCanceledUserTypeBreakdown(\Illuminate\Database\Eloquent\Collection $canceledBookings): array
+    {
+        $userTypeBreakdown = $canceledBookings->groupBy('user.user_type')->map(function ($userTypeBookings, $userType) {
+            $totalRefundAmount = $userTypeBookings->sum('refund_amount');
+
+            return [
+                'user_type' => $userType ?? 'Unknown',
+                'total_cancelations' => $userTypeBookings->count(),
+                'total_refund_amount' => round($totalRefundAmount, 2),
+                'unique_users' => $userTypeBookings->pluck('user_id')->unique()->count(),
+                'average_refund_amount' => $userTypeBookings->count() > 0 ? round($totalRefundAmount / $userTypeBookings->count(), 2) : 0,
+            ];
+        })->values()->toArray();
+
+        return $userTypeBreakdown;
+    }
+
+    /**
+     * Generate breakdown by cancellation reason.
+     */
+    private function generateCancellationReasonBreakdown(\Illuminate\Database\Eloquent\Collection $canceledBookings): array
+    {
+        $reasonBreakdown = $canceledBookings->groupBy('cancellation_reason')->map(function ($reasonBookings, $reason) {
+            $totalRefundAmount = $reasonBookings->sum('refund_amount');
+
+            return [
+                'cancellation_reason' => $reason ?? 'No reason provided',
+                'total_cancelations' => $reasonBookings->count(),
+                'total_refund_amount' => round($totalRefundAmount, 2),
+                'unique_users' => $reasonBookings->pluck('user_id')->unique()->count(),
+                'average_refund_amount' => $reasonBookings->count() > 0 ? round($totalRefundAmount / $reasonBookings->count(), 2) : 0,
+            ];
+        })->values()->toArray();
+
+        return $reasonBreakdown;
+    }
+
+    /**
+     * Generate breakdown by time periods for canceled bookings.
+     */
+    private function generateCanceledTimeBreakdown(\Illuminate\Database\Eloquent\Collection $canceledBookings, string $period): array
+    {
+        $groupedBookings = $canceledBookings->groupBy(function ($booking) use ($period) {
+            switch ($period) {
+                case 'day':
+                    return $booking->cancelled_at ? $booking->cancelled_at->format('Y-m-d') : 'Unknown';
+                case 'week':
+                    return $booking->cancelled_at ? $booking->cancelled_at->format('o-W') : 'Unknown';
+                case 'month':
+                    return $booking->cancelled_at ? $booking->cancelled_at->format('Y-m') : 'Unknown';
+                default:
+                    return $booking->cancelled_at ? $booking->cancelled_at->format('Y-m-d') : 'Unknown';
+            }
+        });
+
+        $timeBreakdown = $groupedBookings->map(function ($periodBookings, $periodKey) use ($period) {
+            $totalRefundAmount = $periodBookings->sum('refund_amount');
+
+            return [
+                'period' => $periodKey,
+                'period_type' => $period,
+                'total_cancelations' => $periodBookings->count(),
+                'total_refund_amount' => round($totalRefundAmount, 2),
+                'unique_users' => $periodBookings->pluck('user_id')->unique()->count(),
+                'average_refund_amount' => $periodBookings->count() > 0 ? round($totalRefundAmount / $periodBookings->count(), 2) : 0,
+            ];
+        })->values()->toArray();
+
+        // Sort by period
+        usort($timeBreakdown, function ($a, $b) {
+            return $a['period'] <=> $b['period'];
+        });
+
+        return $timeBreakdown;
+    }
+
+    /**
+     * Create a successful response for canceled bookings report.
+     */
+    private function createCanceledBookingsSuccessResponse(array $reportData, array $dateRange, array $filters): array
+    {
+        return [
+            'success' => true,
+            'report' => $reportData,
+            'period' => [
+                'start_date' => $dateRange['start']->format('Y-m-d'),
+                'end_date' => $dateRange['end']->format('Y-m-d'),
+                'start_datetime' => $dateRange['start']->toISOString(),
+                'end_datetime' => $dateRange['end']->toISOString(),
+            ],
+            'filters_applied' => $filters,
+            'total_cancelations' => $reportData['metrics']['total_cancelations'],
         ];
     }
 } 

@@ -28,8 +28,19 @@ class TimetableImportService
             $sheet = $spreadsheet->getActiveSheet();
             $highestRow = $sheet->getHighestRow();
 
-            // Assume the first row is the header
+            // Read the first row
             $header = $sheet->rangeToArray('A1:' . $sheet->getHighestColumn() . '1', NULL, TRUE, FALSE)[0];
+            // If the first cell is a day name (e.g., 'MONDAY'), and the rest are null/empty, skip this row and use the next row as header
+            $dayNames = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY'];
+            $firstCell = strtoupper(trim($header[0] ?? ''));
+            $restAreEmpty = count(array_filter(array_slice($header, 1), function($v) { return !empty($v); })) === 0;
+            if (in_array($firstCell, $dayNames) && $restAreEmpty) {
+                // Use the second row as header
+                $header = $sheet->rangeToArray('A2:' . $sheet->getHighestColumn() . '2', NULL, TRUE, FALSE)[0];
+                $headerRowIndex = 2;
+            } else {
+                $headerRowIndex = 1;
+            }
             Log::info("DEBUG: Headers detected in file: " . json_encode($header));
 
             // Define common time slot patterns for school timetables
@@ -54,7 +65,12 @@ class TimetableImportService
                 'ROOM' => array_search('ROOM', $header),
                 'SEMESTER' => array_search('SEMESTER', $header),
                 'CLASS' => array_search('CLASS', $header),
-                'SECTION' => array_search('SECTION', $header)
+                'SECTION' => array_search('SECTION', $header),
+                'STUDY_MODE' => array_search('STUDY_MODE', $header),
+                'DELIVERY_MODE' => array_search('DELIVERY_MODE', $header),
+                'PROGRAM_TYPE' => array_search('PROGRAM_TYPE', $header),
+                'MODE' => array_search('MODE', $header),
+                'TYPE' => array_search('TYPE', $header)
             ];
 
             // Add time slot headers to columnMap
@@ -77,7 +93,7 @@ class TimetableImportService
             DB::beginTransaction(); // Start a database transaction
 
             // Iterate through rows, skipping the header (starting from row 2)
-            for ($row = 2; $row <= $highestRow; $row++) {
+            for ($row = $headerRowIndex + 1; $row <= $highestRow; $row++) {
                 $rowData = $sheet->rangeToArray('A' . $row . ':' . $sheet->getHighestColumn() . $row, NULL, TRUE, FALSE)[0];
 
                 // Skip completely empty rows
@@ -91,6 +107,11 @@ class TimetableImportService
                 $teacher = trim($rowData[$columnMap['TEACHER']] ?? '');
                 $semester = trim($rowData[$columnMap['SEMESTER']] ?? 'Current Semester');
                 $classSection = trim($rowData[$columnMap['CLASS']] ?? $rowData[$columnMap['SECTION']] ?? $level);
+                
+                // Extract study mode and delivery mode
+                $studyMode = $this->determineStudyMode($rowData, $columnMap, $header);
+                $deliveryMode = $this->determineDeliveryMode($rowData, $columnMap, $header);
+                $programType = trim($rowData[$columnMap['PROGRAM_TYPE']] ?? 'undergraduate');
 
                 // If no day is found in the row, try to determine from the sheet name or other means
                 if (empty($day)) {
@@ -113,7 +134,7 @@ class TimetableImportService
                 // Iterate through time slot columns
                 foreach ($columnMap as $columnName => $columnIndex) {
                     // Skip non-time slot columns
-                    if (in_array($columnName, ['LEVEL', 'DAY', 'DAY_OF_WEEK', 'COURSE', 'SUBJECT', 'TEACHER', 'VENUE', 'ROOM', 'SEMESTER', 'CLASS', 'SECTION'])) {
+                    if (in_array($columnName, ['LEVEL', 'DAY', 'DAY_OF_WEEK', 'COURSE', 'SUBJECT', 'TEACHER', 'VENUE', 'ROOM', 'SEMESTER', 'CLASS', 'SECTION', 'STUDY_MODE', 'DELIVERY_MODE', 'PROGRAM_TYPE', 'MODE', 'TYPE'])) {
                         continue;
                     }
 
@@ -173,7 +194,10 @@ class TimetableImportService
                             'class_section' => $classSection,
                             'course_name'   => $courseCode,
                             'room'          => $actualVenueName,
-                            'type'          => 'class'
+                            'type'          => 'class',
+                            'study_mode'    => $studyMode,
+                            'delivery_mode' => $deliveryMode,
+                            'program_type'  => $programType
                         ]);
                     }
                 }
@@ -282,10 +306,107 @@ class TimetableImportService
      */
     protected function parseCourseAndVenueFromCell(string $cellContent): array
     {
-        $parts = explode('-', $cellContent, 2); // Split only on the first hyphen
-        $courseCode = trim($parts[0]);
-        $venueName = count($parts) > 1 ? trim($parts[1]) : null;
-
+        // Split by newlines (handles both \r\n and \n)
+        $lines = preg_split('/\r\n|\r|\n/', $cellContent);
+        $courseCode = trim($lines[0] ?? '');
+        $venueName = trim($lines[1] ?? '');
         return [$courseCode, $venueName];
+    }
+
+    /**
+     * Determines the study mode (full-time/part-time) from the data
+     */
+    protected function determineStudyMode(array $rowData, array $columnMap, array $header): string
+    {
+        // Check for explicit study mode column
+        if (isset($columnMap['STUDY_MODE']) && $columnMap['STUDY_MODE'] !== false) {
+            $studyMode = strtolower(trim($rowData[$columnMap['STUDY_MODE']] ?? ''));
+            if (in_array($studyMode, ['full-time', 'part-time'])) {
+                return $studyMode;
+            }
+        }
+
+        // Check for mode column
+        if (isset($columnMap['MODE']) && $columnMap['MODE'] !== false) {
+            $mode = strtolower(trim($rowData[$columnMap['MODE']] ?? ''));
+            if (in_array($mode, ['full-time', 'part-time'])) {
+                return $mode;
+            }
+        }
+
+        // Check for type column
+        if (isset($columnMap['TYPE']) && $columnMap['TYPE'] !== false) {
+            $type = strtolower(trim($rowData[$columnMap['TYPE']] ?? ''));
+            if (in_array($type, ['full-time', 'part-time'])) {
+                return $type;
+            }
+        }
+
+        // Check sheet name for clues
+        $sheetName = strtolower($this->getCurrentSheetName());
+        if (strpos($sheetName, 'full') !== false || strpos($sheetName, 'fulltime') !== false) {
+            return 'full-time';
+        }
+        if (strpos($sheetName, 'part') !== false || strpos($sheetName, 'parttime') !== false) {
+            return 'part-time';
+        }
+
+        // Default to full-time
+        return 'full-time';
+    }
+
+    /**
+     * Determines the delivery mode (face-to-face/online/hybrid) from the data
+     */
+    protected function determineDeliveryMode(array $rowData, array $columnMap, array $header): string
+    {
+        // Check for explicit delivery mode column
+        if (isset($columnMap['DELIVERY_MODE']) && $columnMap['DELIVERY_MODE'] !== false) {
+            $deliveryMode = strtolower(trim($rowData[$columnMap['DELIVERY_MODE']] ?? ''));
+            if (in_array($deliveryMode, ['face-to-face', 'online', 'hybrid'])) {
+                return $deliveryMode;
+            }
+        }
+
+        // Check for mode column
+        if (isset($columnMap['MODE']) && $columnMap['MODE'] !== false) {
+            $mode = strtolower(trim($rowData[$columnMap['MODE']] ?? ''));
+            if (in_array($mode, ['face-to-face', 'online', 'hybrid'])) {
+                return $mode;
+            }
+        }
+
+        // Check for type column
+        if (isset($columnMap['TYPE']) && $columnMap['TYPE'] !== false) {
+            $type = strtolower(trim($rowData[$columnMap['TYPE']] ?? ''));
+            if (in_array($type, ['face-to-face', 'online', 'hybrid'])) {
+                return $type;
+            }
+        }
+
+        // Check sheet name for clues
+        $sheetName = strtolower($this->getCurrentSheetName());
+        if (strpos($sheetName, 'face') !== false || strpos($sheetName, 'f2f') !== false) {
+            return 'face-to-face';
+        }
+        if (strpos($sheetName, 'online') !== false || strpos($sheetName, 'virtual') !== false) {
+            return 'online';
+        }
+        if (strpos($sheetName, 'hybrid') !== false) {
+            return 'hybrid';
+        }
+
+        // Default to face-to-face
+        return 'face-to-face';
+    }
+
+    /**
+     * Gets the current sheet name (helper method)
+     */
+    protected function getCurrentSheetName(): string
+    {
+        // This would need to be implemented based on how you access the sheet
+        // For now, return empty string
+        return '';
     }
 }
