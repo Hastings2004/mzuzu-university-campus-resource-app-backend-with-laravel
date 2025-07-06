@@ -83,6 +83,14 @@ class SecurityController extends Controller
             $user = Auth::user();
             $code = $request->input('code');
 
+            // Check if user has a secret set (from setup process)
+            if (!$user->two_factor_secret) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please setup 2FA first before verifying.'
+                ], 400);
+            }
+
             // Check if the code is valid
             if (!$this->google2fa->verifyKey($user->two_factor_secret, $code)) {
                 // Check if it's a backup code
@@ -307,5 +315,31 @@ class SecurityController extends Controller
         }
         
         return false;
+    }
+
+    /**
+     * Get current 2FA status for debugging
+     */
+    public function get2FAStatus(Request $request): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            return response()->json([
+                'success' => true,
+                'two_factor_enabled' => $user->two_factor_enabled,
+                'has_secret' => !empty($user->two_factor_secret),
+                'has_backup_codes' => !empty($user->two_factor_backup_codes),
+                'user_id' => $user->id,
+                'email' => $user->email
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('2FA status check failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get 2FA status.'
+            ], 500);
+        }
     }
 }

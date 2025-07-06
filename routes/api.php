@@ -122,6 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Security Settings Routes
     Route::prefix('user')->middleware('track.session')->group(function () {
         // 2FA Routes
+        Route::get('/2fa/status', [SecurityController::class, 'get2FAStatus']); // Debug route
         Route::post('/2fa/setup', [SecurityController::class, 'setup2FA']);
         Route::post('/2fa/verify', [SecurityController::class, 'verify2FA']);
         Route::delete('/2fa/disable', [SecurityController::class, 'disable2FA']);
