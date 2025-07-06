@@ -592,4 +592,63 @@ class BookingController extends Controller
             'bookings' => $recent
         ]);
     }
+
+    /**
+     * Lookup booking by UUID and return numeric ID for frontend compatibility.
+     *
+     * @param string $uuid
+     * @return JsonResponse
+     */
+    public function lookupByUuid(string $uuid): JsonResponse
+    {
+        $booking = Booking::where('uuid', $uuid)->first();
+        
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Booking not found'
+            ], 404);
+        }
+
+        // Policy check: ensure user owns the booking or is an admin/staff
+        if ($booking->user_id !== Auth::id() && !(Auth::user() && (Auth::user()->user_type === 'admin' || Auth::user()->user_type === 'staff'))) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'booking' => [
+                'id' => $booking->id,
+                'uuid' => $booking->uuid,
+                'booking_reference' => $booking->booking_reference,
+                'user_id' => $booking->user_id,
+                'resource_id' => $booking->resource_id,
+                'start_time' => $booking->start_time ? $booking->start_time->toISOString() : null,
+                'end_time' => $booking->end_time ? $booking->end_time->toISOString() : null,
+                'status' => $booking->status,
+                'purpose' => $booking->purpose,
+                'booking_type' => $booking->booking_type,
+                'priority' => $booking->priority,
+                'supporting_document' => $booking->supporting_document_path,
+                'created_at' => $booking->created_at ? $booking->created_at->toISOString() : null,
+                'updated_at' => $booking->updated_at ? $booking->updated_at->toISOString() : null,
+                'resource' => $booking->resource ? [
+                    'id' => $booking->resource->id,
+                    'name' => $booking->resource->name,
+                    'location' => $booking->resource->location ?? 'Unknown Location',
+                    'description' => $booking->resource->description,
+                    'capacity' => $booking->resource->capacity,
+                    'type' => $booking->resource->type ?? null,
+                    'is_active' => $booking->resource->is_active ?? null,
+                ] : null,
+                'user' => $booking->user ? [
+                    'id' => $booking->user->id,
+                    'first_name' => $booking->user->first_name ?? 'N/A',
+                    'last_name' => $booking->user->last_name ?? 'N/A',
+                    'email' => $booking->user->email ?? 'N/A',
+                    'user_type' => $booking->user->user_type ?? $booking->user->role?->name ?? 'N/A',
+                ] : null
+            ]
+        ]);
+    }
 }

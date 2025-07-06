@@ -71,7 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/resource-utilization', [ReportController::class, 'getResourceUtilization']);
     Route::get('/reports/booking-summary', [ReportController::class, 'getBookingSummary']);
     Route::get('/reports/upcoming-bookings', [ReportController::class, 'getUpcomingBookings']);
-    Route::post('/bookings/{id}/in_use', [BookingApprovalController::class, 'inUseApproval']);
+    Route::post('/bookings/{id}/in-use', [BookingApprovalController::class, 'inUseApproval']);
     Route::post('/bookings/{id}/complete', [BookingApprovalController::class, 'complete']);
     Route::prefix('timetable')->group(function () {
         Route::post('/import', [TimetableController::class, 'import']);
@@ -110,6 +110,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/recommendations/resources/time-based', [RecommendationController::class, 'getTimeBasedRecommendations']);
     Route::get('/recommendations/user/preferences', [RecommendationController::class, 'getUserPreferences']);
     Route::get('/bookings-recent', [BookingController::class, 'recentBookings']);
+    Route::get('/bookings/lookup-uuid/{uuid}', [BookingController::class, 'lookupByUuid']);
+    Route::get('/resources/lookup-uuid/{uuid}', [ResourceController::class, 'lookupByUuid']);
     Route::get('/resources-trending', [ResourceController::class, 'trending']);
     Route::get('/resources-recently-booked', [ResourceController::class, 'getRecentlyBookedResources']);
     Route::put('/user/preferences', [UserController::class, 'updatePreferences']);

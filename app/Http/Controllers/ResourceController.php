@@ -312,4 +312,46 @@ class ResourceController extends Controller
             'features' => $features
         ]);
     }
+
+    /**
+     * Lookup resource by UUID and return numeric ID for frontend compatibility.
+     *
+     * @param string $uuid
+     * @return JsonResponse
+     */
+    public function lookupByUuid(string $uuid): JsonResponse
+    {
+        $resource = Resource::where('uuid', $uuid)->first();
+        
+        if (!$resource) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Resource not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'resource' => [
+                'id' => $resource->id,
+                'uuid' => $resource->uuid,
+                'name' => $resource->name,
+                'description' => $resource->description,
+                'location' => $resource->location,
+                'capacity' => $resource->capacity,
+                'type' => $resource->type,
+                'category' => $resource->category,
+                'is_active' => $resource->is_active,
+                'created_at' => $resource->created_at ? $resource->created_at->toISOString() : null,
+                'updated_at' => $resource->updated_at ? $resource->updated_at->toISOString() : null,
+                'features' => $resource->features ? $resource->features->map(function ($feature) {
+                    return [
+                        'id' => $feature->id,
+                        'name' => $feature->name,
+                        'description' => $feature->description,
+                    ];
+                }) : []
+            ]
+        ]);
+    }
 }
