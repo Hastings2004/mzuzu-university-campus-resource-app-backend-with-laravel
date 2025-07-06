@@ -10,6 +10,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Reservation;
 use App\Http\Controllers\ResourceController;
 use App\Http\Controllers\ResourceIssueController;
+use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\TimetableController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ResourceRecommendationController;
@@ -117,6 +118,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/resources-recently-booked', [ResourceController::class, 'getRecentlyBookedResources']);
     Route::put('/user/preferences', [UserController::class, 'updatePreferences']);
     Route::get('/features', [\App\Http\Controllers\ResourceController::class, 'allFeatures']);
+    
+    // Security Settings Routes
+    Route::prefix('user')->middleware('track.session')->group(function () {
+        // 2FA Routes
+        Route::post('/2fa/setup', [SecurityController::class, 'setup2FA']);
+        Route::post('/2fa/verify', [SecurityController::class, 'verify2FA']);
+        Route::delete('/2fa/disable', [SecurityController::class, 'disable2FA']);
+        
+        // Session Management Routes
+        Route::get('/sessions', [SecurityController::class, 'getSessions']);
+        Route::delete('/sessions/logout-all', [SecurityController::class, 'logoutAllDevices']);
+        Route::delete('/sessions/{sessionId}', [SecurityController::class, 'logoutSession']);
+        
+        // Privacy Settings Routes
+        Route::put('/privacy', [SecurityController::class, 'updatePrivacySettings']);
+    });
 });
 
 // Email verification route (no authentication required)

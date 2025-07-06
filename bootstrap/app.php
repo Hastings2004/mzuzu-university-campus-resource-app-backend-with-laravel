@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
+            'track.session' => \App\Http\Middleware\TrackUserSession::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

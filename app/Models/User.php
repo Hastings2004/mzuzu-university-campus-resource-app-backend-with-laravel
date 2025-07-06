@@ -35,6 +35,12 @@ class User extends Authenticatable implements MustVerifyEmail
         'district',
         'village',
         'preferences',
+        'two_factor_enabled',
+        'two_factor_secret',
+        'two_factor_backup_codes',
+        'profile_visibility',
+        'data_sharing',
+        'email_notifications',
     ];
 
 
@@ -59,6 +65,10 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'preferences' => 'array',
+            'two_factor_enabled' => 'boolean',
+            'two_factor_backup_codes' => 'array',
+            'data_sharing' => 'boolean',
+            'email_notifications' => 'boolean',
         ];
     }
 
@@ -78,6 +88,11 @@ class User extends Authenticatable implements MustVerifyEmail
     public function notifications() : HasMany {
         return $this->hasMany(Notification::class);
     }  
+
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(UserSession::class);
+    }
 
     protected static function boot()
     {
