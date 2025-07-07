@@ -14,24 +14,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Seed roles first
-        $this->call([
-            RoleSeeder::class,
-        ]);
-
-        // User::factory(10)->create();
-
-        User::firstOrCreate(
-            [
-                'email' => 'test@example.com',
-            ],
-            [
-                'first_name' => 'Test',
-                'last_name' => 'User',
-                'user_type' => 'staff',
-                // Add other required fields here, or set defaults if needed
-            ]
-        );
-
+        
         // Other seeders...
         $this->call(FeatureSeeder::class);
     }

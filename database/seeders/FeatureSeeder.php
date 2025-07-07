@@ -18,6 +18,8 @@ class FeatureSeeder extends Seeder
             'video_conferencing',
             'air_conditioning',
             'wifi',
+            'Desks',
+            'Chair'
         ];
 
         foreach ($features as $feature) {
