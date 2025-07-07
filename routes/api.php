@@ -15,6 +15,7 @@ use App\Http\Controllers\TimetableController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ResourceRecommendationController;
 use App\Http\Controllers\RecommendationController;
+use App\Http\Controllers\KeyTransactionController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -168,6 +169,15 @@ Route::prefix('search')->middleware('auth:sanctum')->group(function () {
 
 // Chatbot endpoint
 Route::post('/chatbot', [\App\Http\Controllers\ChatbotController::class, 'handle']);
+
+// Key Tracking API
+Route::prefix('keys/{key}')->group(function () {
+    Route::post('checkout', [KeyTransactionController::class, 'checkout']);
+    Route::post('checkin', [KeyTransactionController::class, 'checkin']);
+    Route::get('transactions', [KeyTransactionController::class, 'transactions']);
+});
+
+Route::get('key-transactions/overdue', [KeyTransactionController::class, 'overdue']);
 
  
 
