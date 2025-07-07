@@ -135,6 +135,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Privacy Settings Routes
         Route::put('/privacy', [SecurityController::class, 'updatePrivacySettings']);
     });
+
+    Route::get('/preferences/categories', [UserController::class, 'getAvailableCategories']);
+    Route::get('/preferences/features', [UserController::class, 'getAvailableFeatures']);
+    Route::get('/preferences/locations', [UserController::class, 'getAvailableLocations']);
+    Route::get('/preferences/times', [UserController::class, 'getAvailableTimes']);
 });
 
 // Email verification route (no authentication required)
@@ -147,6 +152,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::post('/bookings', [BookingController::class, 'store']);
     Route::put('/bookings/{booking}', [BookingController::class, 'update']);
     Route::post('/bookings/check-availability', [BookingController::class, 'checkAvailability']);
+    Route::post('/bookings/check-advanced-availability', [BookingController::class, 'checkAdvancedAvailability']);
 });
 
 // Public email verification routes (no authentication required)

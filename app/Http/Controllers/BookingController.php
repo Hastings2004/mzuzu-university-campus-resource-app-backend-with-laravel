@@ -212,6 +212,48 @@ class BookingController extends Controller
     }
 
     /**
+     * Check advanced availability with comprehensive conflict detection.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function checkAdvancedAvailability(Request $request): JsonResponse
+    {
+        $request->validate([
+            'resource_id' => 'required|exists:resources,id',
+            'start_time' => 'required|date',
+            'end_time' => 'required|date|after:start_time',
+            'exclude_booking_id' => 'sometimes|nullable|exists:bookings,id',
+        ]);
+
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Authentication required'
+            ], 401);
+        }
+
+        $resourceId = $request->input('resource_id');
+        $startTime = Carbon::parse($request->input('start_time'));
+        $endTime = Carbon::parse($request->input('end_time'));
+        $excludeBookingId = $request->input('exclude_booking_id');
+
+        $result = $this->bookingService->checkAdvancedAvailability(
+            $resourceId,
+            $startTime,
+            $endTime,
+            $user,
+            $excludeBookingId
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $result
+        ]);
+    }
+
+    /**
      * Store a newly created booking with priority scheduling.
      * This method now delegates fully to the BookingService.
      *

@@ -14,46 +14,49 @@ export default function UserPreferencesForm() {
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Available options for preferences
-    const availableCategories = [
-        'classroom',
-        'laboratory', 
-        'computer_lab',
-        'study_room',
-        'meeting_room',
-        'conference_room',
-        'office'
-    ];
+    // State for available options
+    const [availableCategories, setAvailableCategories] = useState([]);
+    const [availableFeatures, setAvailableFeatures] = useState([]);
+    const [availableLocations, setAvailableLocations] = useState([]);
+    const [availableTimes, setAvailableTimes] = useState([]);
+    const [optionsLoading, setOptionsLoading] = useState(true);
+    const [optionsError, setOptionsError] = useState('');
 
-    const availableFeatures = [
-        'projector',
-        'whiteboard',
-        'computer',
-        'audio_system',
-        'video_conferencing',
-        'air_conditioning',
-        'wifi'
-    ];
-
-    const availableLocations = [
-        'Main Library',
-        'Building A',
-        'Building B', 
-        'Building C',
-        'Student Center',
-        'Administration Building'
-    ];
-
-    const availableTimes = [
-        '08:00', '09:00', '10:00', '11:00', '12:00',
-        '13:00', '14:00', '15:00', '16:00', '17:00',
-        '18:00', '19:00', '20:00'
-    ];
-
+    // Fetch available options from API
     useEffect(() => {
-        // Load existing preferences if user has them
+        async function fetchOptions() {
+            setOptionsLoading(true);
+            setOptionsError('');
+            try {
+                const [catRes, featRes, locRes, timeRes] = await Promise.all([
+                    api.get('/preferences/categories'),
+                    api.get('/preferences/features'),
+                    api.get('/preferences/locations'),
+                    api.get('/preferences/times'),
+                ]);
+                setAvailableCategories(catRes.categories || []);
+                setAvailableFeatures(featRes.features || []);
+                setAvailableLocations(locRes.locations || []);
+                setAvailableTimes(timeRes.times || []);
+            } catch (err) {
+                setOptionsError('Failed to load preference options.');
+            } finally {
+                setOptionsLoading(false);
+            }
+        }
+        fetchOptions();
+    }, []);
+
+    // Load existing preferences if user has them
+    useEffect(() => {
         if (user?.preferences) {
-            setPreferences(user.preferences);
+            setPreferences({
+                categories: user.preferences.categories || [],
+                times: user.preferences.times || [],
+                features: user.preferences.features || [],
+                capacity: user.preferences.capacity || '',
+                locations: user.preferences.locations || []
+            });
         }
     }, [user]);
 
@@ -124,6 +127,13 @@ export default function UserPreferencesForm() {
         });
         setMessage('Preferences reset to default');
     };
+
+    if (optionsLoading) {
+        return <div className="preferences-form-container"><p>Loading options...</p></div>;
+    }
+    if (optionsError) {
+        return <div className="preferences-form-container"><p className="error">{optionsError}</p></div>;
+    }
 
     return (
         <div className="preferences-form-container">

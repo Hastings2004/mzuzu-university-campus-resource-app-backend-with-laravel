@@ -16,6 +16,7 @@ use Illuminate\Support\Str;
 use App\Exceptions\BookingException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage; // Import Storage facade
+use App\Services\AdvancedConflictDetectionService;
 
 class BookingService
 {
@@ -248,6 +249,48 @@ class BookingService
             //$this->validateRestrictedHours($startTime, $endTime);
             $newBookingPriority = $this->determinePriority($user, $data['booking_type']);
 
+            // Advanced conflict detection
+            $advancedConflictService = new AdvancedConflictDetectionService();
+            $advancedConflicts = $advancedConflictService->detectAdvancedConflicts(
+                $data['resource_id'],
+                $startTime,
+                $endTime,
+                $user,
+                $data
+            );
+
+            // Log advanced conflict detection results
+            Log::info('Advanced conflict detection for booking creation', [
+                'resource_id' => $data['resource_id'],
+                'start_time' => $startTime->toDateTimeString(),
+                'end_time' => $endTime->toDateTimeString(),
+                'has_conflicts' => $advancedConflicts['has_conflicts'],
+                'conflict_types' => $advancedConflicts['conflict_types'],
+                'user_id' => $user->id,
+                'booking_type' => $data['booking_type'],
+                'new_priority' => $newBookingPriority
+            ]);
+
+            // If there are advanced conflicts, return them with suggestions
+            if ($advancedConflicts['has_conflicts']) {
+                $suggestions = $this->getBookingSuggestions($user, $resource, $startTime, $endTime);
+                
+                // Add alternative resources from advanced conflict detection
+                $alternativeResources = $advancedConflictService->getAlternativeResources($resource, $startTime, $endTime, $user);
+                if (!empty($alternativeResources)) {
+                    $suggestions = array_merge($suggestions, $alternativeResources);
+                }
+
+                return [
+                    'success' => false,
+                    'message' => 'Advanced conflicts detected. Please review the details below.',
+                    'booking' => null,
+                    'status_code' => 409,
+                    'advanced_conflicts' => $advancedConflicts,
+                    'suggestions' => $suggestions
+                ];
+            }
+
             // Handle supporting document upload
             $documentPath = null;
             if (isset($data['supporting_document']) && $data['supporting_document'] instanceof \Illuminate\Http\UploadedFile) {
@@ -260,7 +303,7 @@ class BookingService
                 }
             }
 
-            // Check for conflicting bookings
+            // Check for conflicting bookings (legacy method for backward compatibility)
             $conflictingBookings = $this->findConflictingBookings(
                 $data['resource_id'],
                 $startTime,
@@ -842,6 +885,36 @@ class BookingService
         }
         
         return !$query->exists();
+    }
+
+    /**
+     * Check advanced availability with comprehensive conflict detection.
+     */
+    public function checkAdvancedAvailability(int $resourceId, Carbon $startTime, Carbon $endTime, User $user, ?int $excludeBookingId = null): array
+    {
+        $advancedConflictService = new AdvancedConflictDetectionService();
+        
+        $conflicts = $advancedConflictService->detectAdvancedConflicts(
+            $resourceId,
+            $startTime,
+            $endTime,
+            $user,
+            [],
+            $excludeBookingId
+        );
+
+        $resource = Resource::find($resourceId);
+        
+        return [
+            'available' => !$conflicts['has_conflicts'],
+            'has_conflicts' => $conflicts['has_conflicts'],
+            'conflict_types' => $conflicts['conflict_types'],
+            'conflicts' => $conflicts['conflicts'],
+            'resource_status' => $resource ? $resource->status : 'unknown',
+            'resource_capacity' => $resource ? $resource->capacity : 0,
+            'suggestions' => $conflicts['suggestions'],
+            'alternative_resources' => $resource ? $advancedConflictService->getAlternativeResources($resource, $startTime, $endTime, $user) : []
+        ];
     }
 
     /**

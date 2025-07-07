@@ -426,4 +426,45 @@ class UserController extends Controller
         return response()->json(['success' => true, 'preferences' => $user->preferences]);
     }
 
+    /**
+     * Get available resource categories for preferences.
+     */
+    public function getAvailableCategories()
+    {
+        $categories = \App\Models\Resource::distinct()->pluck('category')->filter()->values();
+        return response()->json(['categories' => $categories]);
+    }
+
+    /**
+     * Get available features for preferences.
+     */
+    public function getAvailableFeatures()
+    {
+        $features = \App\Models\Feature::pluck('name');
+        return response()->json(['features' => $features]);
+    }
+
+    /**
+     * Get available locations for preferences.
+     */
+    public function getAvailableLocations()
+    {
+        $locations = \App\Models\Resource::distinct()->pluck('location')->filter()->values();
+        return response()->json(['locations' => $locations]);
+    }
+
+    /**
+     * Get available booking times for preferences.
+     * (Static for now, can be made dynamic if needed)
+     */
+    public function getAvailableTimes()
+    {
+        $times = [
+            '08:00', '09:00', '10:00', '11:00', '12:00',
+            '13:00', '14:00', '15:00', '16:00', '17:00',
+            '18:00', '19:00', '20:00'
+        ];
+        return response()->json(['times' => $times]);
+    }
+
 }
