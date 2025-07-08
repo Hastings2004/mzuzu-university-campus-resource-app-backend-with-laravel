@@ -7,9 +7,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up()
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->json('preferences')->nullable()->after('village');
-        });
+        // 'preferences' already exists in users table, so nothing to do here.
     }
     public function down()
     {

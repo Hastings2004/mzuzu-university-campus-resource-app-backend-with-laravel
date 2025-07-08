@@ -11,9 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('resource_issues', function (Blueprint $table) {
-            $table->string('issue_type')->nullable()->after('description');
-        });
+        // 'issue_type' already exists in resource_issues table, so nothing to do here.
     }
 
     /**

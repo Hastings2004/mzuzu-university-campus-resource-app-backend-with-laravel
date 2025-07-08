@@ -17,7 +17,6 @@ return new class extends Migration
             $table->text('physical_address')->nullable()->after('phone');
             $table->text('post_address')->nullable()->after('physical_address');
             $table->string('district')->nullable()->after('post_address');
-            $table->string('village')->nullable()->after('district');
 
 
         });
@@ -32,6 +31,8 @@ return new class extends Migration
             $table->dropColumn('phone');
             $table->dropColumn('physical_address');
             $table->dropColumn('post_address');
+            $table->dropColumn('district');
+            $table->dropColumn('village');
         });
     }
 };

@@ -141,6 +141,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/preferences/features', [UserController::class, 'getAvailableFeatures']);
     Route::get('/preferences/locations', [UserController::class, 'getAvailableLocations']);
     Route::get('/preferences/times', [UserController::class, 'getAvailableTimes']);
+
+    Route::prefix('keys/{key}')->group(function () {
+        Route::post('checkout', [KeyTransactionController::class, 'checkout']);
+        Route::post('checkin', [KeyTransactionController::class, 'checkin']);
+        Route::get('transactions', [KeyTransactionController::class, 'transactions']);
+    });
 });
 
 // Email verification route (no authentication required)
@@ -171,11 +177,7 @@ Route::prefix('search')->middleware('auth:sanctum')->group(function () {
 Route::post('/chatbot', [\App\Http\Controllers\ChatbotController::class, 'handle']);
 
 // Key Tracking API
-Route::prefix('keys/{key}')->group(function () {
-    Route::post('checkout', [KeyTransactionController::class, 'checkout']);
-    Route::post('checkin', [KeyTransactionController::class, 'checkin']);
-    Route::get('transactions', [KeyTransactionController::class, 'transactions']);
-});
+
 
 Route::get('key-transactions/overdue', [KeyTransactionController::class, 'overdue']);
 
