@@ -266,6 +266,11 @@ class AuthController extends Controller
      */
     public function resetPassword(ResetPasswordRequest $request)
     {
+        // Add logging for debugging
+        \Log::info('Reset password request', [
+            'email' => $request->email ?? null,
+            'token' => $request->token ?? null,
+        ]);
         try {
             $status = Password::reset(
                 $request->only('email', 'password', 'password_confirmation', 'token'),
@@ -316,6 +321,12 @@ class AuthController extends Controller
             'email' => 'required|email|exists:users,email',
         ]);
 
+        // Add logging for debugging
+        \Log::info('Password reset token check', [
+            'email' => $request->email,
+            'token' => $request->token,
+        ]);
+
         try {
             $user = User::where('email', $request->email)->first();
             
@@ -326,14 +337,19 @@ class AuthController extends Controller
                 ], 404);
             }
 
-            // Check if the token exists and is not expired
-            $tokenExists = \DB::table('password_reset_tokens')
+            // Check if the token exists and is not expired (hashed token check)
+            $record = \DB::table('password_reset_tokens')
                 ->where('email', $request->email)
-                ->where('token', $request->token)
                 ->where('created_at', '>', now()->subMinutes(60))
-                ->exists();
+                ->first();
 
-            if ($tokenExists) {
+            $tokenIsValid = false;
+            if ($record) {
+                // Use Hash::check for hashed tokens
+                $tokenIsValid = \Illuminate\Support\Facades\Hash::check($request->token, $record->token);
+            }
+
+            if ($tokenIsValid) {
                 return response()->json([
                     'success' => true,
                     'message' => 'Token is valid.'
@@ -346,7 +362,7 @@ class AuthController extends Controller
             ], 400);
 
         } catch (\Exception $e) {
-            Log::error('Token validation failed', [
+            \Log::error('Token validation failed', [
                 'email' => $request->email,
                 'error' => $e->getMessage(),
             ]);
