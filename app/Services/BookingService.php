@@ -796,11 +796,8 @@ class BookingService
 
         // Query for bookings that have ended and are not already in a final state
         $updatedCount = Booking::where('end_time', '<', $now)
-            ->whereNotIn('status', [
-                self::STATUS_CANCELLED,
-                self::STATUS_PREEMPTED,
-                self::STATUS_COMPLETED,
-                self::STATUS_EXPIRED 
+            ->where('status', [
+                self::STATUS_PENDING
             ])
             ->update(['status' => self::STATUS_EXPIRED]);
 

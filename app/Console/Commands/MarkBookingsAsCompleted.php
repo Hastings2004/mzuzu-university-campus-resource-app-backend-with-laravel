@@ -38,10 +38,11 @@ class MarkBookingsAsCompleted extends Command
         //$statusApproved = 'approved'; 
         $statusInUse = 'in_use';     
         $statusCompleted = 'completed'; 
+        $statusApproved = 'approved';
 
         // Find bookings that have ended and are currently 'approved' or 'in_use'
         $updatedCount = Booking::where('end_time', '<', $now)
-            ->whereIn('status', [$statusInUse])
+            ->whereIn('status', [$statusInUse, $statusApproved])
             ->update(['status' => $statusCompleted]);
 
         if ($updatedCount > 0) {
