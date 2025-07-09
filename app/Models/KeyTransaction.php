@@ -8,7 +8,15 @@ class KeyTransaction extends Model
 {
     protected $fillable = [
         'key_id', 'booking_id', 'user_id', 'custodian_id',
-        'checked_out_at', 'expected_return_at', 'checked_in_at', 'status'
+        'checked_out_at', 'expected_return_at', 'checked_in_at', 'status',
+        'overdue_notified_at'
+    ];
+
+    protected $casts = [
+        'checked_out_at' => 'datetime',
+        'expected_return_at' => 'datetime',
+        'checked_in_at' => 'datetime',
+        'overdue_notified_at' => 'datetime',
     ];
 
     public function key()

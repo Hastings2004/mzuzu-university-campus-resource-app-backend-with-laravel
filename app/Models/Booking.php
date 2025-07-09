@@ -37,6 +37,8 @@ class Booking extends Model
         'in_use_started_at',
         'completed_by',
         'completed_at',
+        'will_complete_notified_at',
+        'completed_notified_at',
     ];
 
     protected $casts = [
