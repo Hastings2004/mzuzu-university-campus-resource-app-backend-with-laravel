@@ -90,6 +90,7 @@ class UserController extends Controller
                 'post_address' => ['sometimes', 'string'],
                 'district' => ['sometimes', 'string', 'max:255'],
                 'village' => ['sometimes', 'string', 'max:255'],
+                'age' => ['sometimes']
             ];
 
             $validatedData = $request->validate($rules);
@@ -154,6 +155,7 @@ class UserController extends Controller
                 'post_address' => ['sometimes', 'string'],
                 'district' => ['sometimes', 'string', 'max:255'],
                 'village' => ['sometimes', 'string', 'max:255'],
+                'age' => ['sometimes']
             ];
 
             $validatedData = $request->validate($rules);

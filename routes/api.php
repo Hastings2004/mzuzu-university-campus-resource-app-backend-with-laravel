@@ -142,11 +142,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/preferences/locations', [UserController::class, 'getAvailableLocations']);
     Route::get('/preferences/times', [UserController::class, 'getAvailableTimes']);
 
-    Route::prefix('keys/{key}')->group(function () {
-        Route::post('checkout', [KeyTransactionController::class, 'checkout']);
-        Route::post('checkin', [KeyTransactionController::class, 'checkin']);
-        Route::get('transactions', [KeyTransactionController::class, 'transactions']);
-    });
+
+    Route::post('checkout', [KeyTransactionController::class, 'checkout']);
+    Route::post('checkin', [KeyTransactionController::class, 'checkin']);
+    Route::get('transactions', [KeyTransactionController::class, 'transactions']);
+    Route::post('add-key', [KeyTransactionController::class, 'store']);
+    Route::get('keys', [KeyTransactionController::class, 'index']);
+    Route::get('keys/{key}/transactions', [KeyTransactionController::class, 'transactions']);
+    Route::post('keys/{key}/checkout', [KeyTransactionController::class, 'checkout']);
+    Route::post('keys/{key}/checkin', [KeyTransactionController::class, 'checkin']);
+    
 });
 
 // Email verification route (no authentication required)

@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('key_code')->unique();
             $table->enum('status', ['available', 'checked_out', 'lost'])->default('available');
             $table->timestamps();
-
+            
             $table->foreign('resource_id')->references('id')->on('resources')->onDelete('cascade');
         });
     }

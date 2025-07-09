@@ -16,9 +16,10 @@ return new class extends Migration
             $table->string('name');
             $table->string('description'); 
             $table->string('location'); 
+            $table->string('google_location')->nullable();
             $table->integer('capacity');
-            $table->enum('category', ['classrooms', 'ict_labs', 'science_labs', 'sports','cars', 'auditorium']);
-            $table->integer('is_active')->default(1); // 1 for active, 0 for inactive
+            $table->enum('category', ['classrooms', 'ict_labs', 'science_labs', 'sports','board_room', 'auditorium']);
+            $table->integer('is_active')->default(1); 
             $table->string("status")->default("Available");
             $table->string('image')->nullable(); 
             $table->timestamps();
