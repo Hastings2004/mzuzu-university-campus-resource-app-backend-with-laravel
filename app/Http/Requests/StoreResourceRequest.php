@@ -26,14 +26,14 @@ class StoreResourceRequest extends FormRequest
     {
         return [
             //
-            "name" => ['required', 'string', 'min:3', 'max:100'], 
+            "name" => ['required', 'string', 'min:3', 'max:100', 'unique:resources,name'], 
             "description" => ['required', 'string', 'min:5', 'max:500'], 
             "location" => ['required', 'string', 'min:3', 'max:100'],
             "capacity" => ['required', 'integer', 'min:1'], 
-            "category" => ['required', 'string', 'in:classrooms,ict_labs,science_labs,auditorium,sports,cars'], 
+            "category" => ['required', 'string', 'in:classrooms,ict_labs,science_labs,auditoriums,sports,board_rooms'], 
             "status" => ['required', 'string', 'in:available,unavailable'], 
-            "image" => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:10000'] 
-        
+            "image" => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:10000'],
+            "special_approval" => ['required', 'in:yes,no']
         ];
     }
 }

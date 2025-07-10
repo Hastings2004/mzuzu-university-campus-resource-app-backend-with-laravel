@@ -16,7 +16,6 @@ use Illuminate\Support\Str;
 use App\Exceptions\BookingException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage; // Import Storage facade
-use App\Services\AdvancedConflictDetectionService;
 
 class BookingService
 {
@@ -96,7 +95,6 @@ class BookingService
                 self::STATUS_PENDING, 
                 self::STATUS_APPROVED, 
                 self::STATUS_IN_USE,
-                'in user' // Include old status for backward compatibility
             ])
             ->where(function ($q) use ($startTime, $endTime) {
                 // Check for any overlap between the requested time slot and existing bookings
@@ -249,48 +247,6 @@ class BookingService
             //$this->validateRestrictedHours($startTime, $endTime);
             $newBookingPriority = $this->determinePriority($user, $data['booking_type']);
 
-            // Advanced conflict detection
-            $advancedConflictService = new AdvancedConflictDetectionService();
-            $advancedConflicts = $advancedConflictService->detectAdvancedConflicts(
-                $data['resource_id'],
-                $startTime,
-                $endTime,
-                $user,
-                $data
-            );
-
-            // Log advanced conflict detection results
-            Log::info('Advanced conflict detection for booking creation', [
-                'resource_id' => $data['resource_id'],
-                'start_time' => $startTime->toDateTimeString(),
-                'end_time' => $endTime->toDateTimeString(),
-                'has_conflicts' => $advancedConflicts['has_conflicts'],
-                'conflict_types' => $advancedConflicts['conflict_types'],
-                'user_id' => $user->id,
-                'booking_type' => $data['booking_type'],
-                'new_priority' => $newBookingPriority
-            ]);
-
-            // If there are advanced conflicts, return them with suggestions
-            if ($advancedConflicts['has_conflicts']) {
-                $suggestions = $this->getBookingSuggestions($user, $resource, $startTime, $endTime);
-                
-                // Add alternative resources from advanced conflict detection
-                $alternativeResources = $advancedConflictService->getAlternativeResources($resource, $startTime, $endTime, $user);
-                if (!empty($alternativeResources)) {
-                    $suggestions = array_merge($suggestions, $alternativeResources);
-                }
-
-                return [
-                    'success' => false,
-                    'message' => 'Advanced conflicts detected. Please review the details below.',
-                    'booking' => null,
-                    'status_code' => 409,
-                    'advanced_conflicts' => $advancedConflicts,
-                    'suggestions' => $suggestions
-                ];
-            }
-
             // Handle supporting document upload
             $documentPath = null;
             if (isset($data['supporting_document']) && $data['supporting_document'] instanceof \Illuminate\Http\UploadedFile) {
@@ -303,7 +259,7 @@ class BookingService
                 }
             }
 
-            // Check for conflicting bookings (legacy method for backward compatibility)
+            // Check for conflicting bookings
             $conflictingBookings = $this->findConflictingBookings(
                 $data['resource_id'],
                 $startTime,
@@ -393,11 +349,23 @@ class BookingService
             }
 
             // Create the new booking
+            $defaultApproved = "pending";
+
+            if($resource->special_approval == 'yes'){
+                $defaultApproved = "pending";
+            } elseif ($resource->special_approval == 'no'){
+                $defaultApproved = "approved";
+            }else{
+                $defaultApproved = "pending";
+            }
+
+            
             $booking = $user->bookings()->create([
                 "booking_reference" => $this->generateBookingReference(),
                 "resource_id" => $data['resource_id'],
                 "start_time" => $startTime,
-                "end_time" => $endTime,                
+                "end_time" => $endTime,      
+                "status" => $defaultApproved,          
                 "purpose" => $data['purpose'] ?? null,
                 "booking_type" => $data['booking_type'],
                 "priority" => $newBookingPriority,
@@ -497,7 +465,7 @@ class BookingService
                 $booking->resource_id,
                 $startTime,
                 $endTime,
-                $booking->id // Exclude the current booking's ID
+                $booking->id 
             );
 
             $preemptableConflicts = collect();
@@ -796,8 +764,11 @@ class BookingService
 
         // Query for bookings that have ended and are not already in a final state
         $updatedCount = Booking::where('end_time', '<', $now)
-            ->where('status', [
-                self::STATUS_PENDING
+            ->whereNotIn('status', [
+                self::STATUS_CANCELLED,
+                self::STATUS_PREEMPTED,
+                self::STATUS_COMPLETED,
+                self::STATUS_EXPIRED 
             ])
             ->update(['status' => self::STATUS_EXPIRED]);
 
@@ -885,48 +856,15 @@ class BookingService
     }
 
     /**
-     * Check advanced availability with comprehensive conflict detection.
-     */
-    public function checkAdvancedAvailability(int $resourceId, Carbon $startTime, Carbon $endTime, User $user, ?int $excludeBookingId = null): array
-    {
-        $advancedConflictService = new AdvancedConflictDetectionService();
-        
-        $conflicts = $advancedConflictService->detectAdvancedConflicts(
-            $resourceId,
-            $startTime,
-            $endTime,
-            $user,
-            [],
-            $excludeBookingId
-        );
-
-        $resource = Resource::find($resourceId);
-        
-        return [
-            'available' => !$conflicts['has_conflicts'],
-            'has_conflicts' => $conflicts['has_conflicts'],
-            'conflict_types' => $conflicts['conflict_types'],
-            'conflicts' => $conflicts['conflicts'],
-            'resource_status' => $resource ? $resource->status : 'unknown',
-            'resource_capacity' => $resource ? $resource->capacity : 0,
-            'suggestions' => $conflicts['suggestions'],
-            'alternative_resources' => $resource ? $advancedConflictService->getAlternativeResources($resource, $startTime, $endTime, $user) : []
-        ];
-    }
-
-    /**
      * Suggest alternative time slots for a resource.
      */
     public function suggestNearbySlots($resourceId, $start, $end, $intervals = [15, 30])
     {
         $suggestions = [];
-        $currentTime = now();
-        
         foreach ($intervals as $minutes) {
             $earlierStart = Carbon::parse($start)->subMinutes($minutes);
             $earlierEnd = Carbon::parse($end)->subMinutes($minutes);
-            // Only suggest earlier slots if they are in the future
-            if ($earlierStart->gt($currentTime) && $this->isResourceAvailable($resourceId, $earlierStart, $earlierEnd)) {
+            if ($this->isResourceAvailable($resourceId, $earlierStart, $earlierEnd)) {
                 $suggestions[] = [
                     'resource_id' => $resourceId,
                     'start_time' => $earlierStart->toDateTimeString(),
@@ -936,8 +874,7 @@ class BookingService
             }
             $laterStart = Carbon::parse($start)->addMinutes($minutes);
             $laterEnd = Carbon::parse($end)->addMinutes($minutes);
-            // Only suggest later slots if they are in the future
-            if ($laterStart->gt($currentTime) && $this->isResourceAvailable($resourceId, $laterStart, $laterEnd)) {
+            if ($this->isResourceAvailable($resourceId, $laterStart, $laterEnd)) {
                 $suggestions[] = [
                     'resource_id' => $resourceId,
                     'start_time' => $laterStart->toDateTimeString(),
@@ -956,7 +893,6 @@ class BookingService
     public function suggestSimilarResources($resource, $start, $end)
     {
         $thirtyDaysAgo = now()->subDays(30);
-        $currentTime = now();
         
         // Get the features of the requested resource
         $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
@@ -991,16 +927,15 @@ class BookingService
             $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
             $featureSimilarityScore = !empty($requestedFeatures) ? ($featureMatchCount / count($requestedFeatures)) * 100 : 0;
             
-            // Check availability and ensure the suggested time is in the future
-            $suggestedStartTime = Carbon::parse($start);
-            if ($suggestedStartTime->gt($currentTime) && $this->isResourceAvailable($res->id, $start, $end)) {
+            // Check availability
+            if ($this->isResourceAvailable($res->id, $start, $end)) {
                 $suggestions[] = [
                     'resource_id' => $res->id,
                     'resource_name' => $res->name,
                     'resource_location' => $res->location,
                     'resource_capacity' => $res->capacity,
                     'resource_category' => $res->category,
-                    'start_time' => $suggestedStartTime->toDateTimeString(),
+                    'start_time' => Carbon::parse($start)->toDateTimeString(),
                     'end_time' => Carbon::parse($end)->toDateTimeString(),
                     'type' => 'alternative_resource',
                     'recent_booking_count' => $usageStats[$res->id] ?? 0,
@@ -1034,7 +969,6 @@ class BookingService
     public function suggestFeatureBasedAlternatives($resource, $start, $end, $minFeatureMatch = 0.3)
     {
         $requestedFeatures = $resource->features()->pluck('features.id')->toArray();
-        $currentTime = now();
         
         if (empty($requestedFeatures)) {
             return []; // No features to match against
@@ -1055,16 +989,15 @@ class BookingService
             $featureMatchCount = count(array_intersect($requestedFeatures, $resFeatures));
             $featureSimilarityScore = ($featureMatchCount / count($requestedFeatures)) * 100;
             
-            // Only include if feature match is above minimum threshold and time is in the future
-            $suggestedStartTime = Carbon::parse($start);
-            if ($featureSimilarityScore >= ($minFeatureMatch * 100) && $suggestedStartTime->gt($currentTime) && $this->isResourceAvailable($res->id, $start, $end)) {
+            // Only include if feature match is above minimum threshold
+            if ($featureSimilarityScore >= ($minFeatureMatch * 100) && $this->isResourceAvailable($res->id, $start, $end)) {
                 $suggestions[] = [
                     'resource_id' => $res->id,
                     'resource_name' => $res->name,
                     'resource_location' => $res->location,
                     'resource_capacity' => $res->capacity,
                     'resource_category' => $res->category,
-                    'start_time' => $suggestedStartTime->toDateTimeString(),
+                    'start_time' => Carbon::parse($start)->toDateTimeString(),
                     'end_time' => Carbon::parse($end)->toDateTimeString(),
                     'type' => 'feature_based_alternative',
                     'feature_similarity_score' => round($featureSimilarityScore, 1),
@@ -1250,7 +1183,6 @@ class BookingService
                 self::STATUS_PENDING, 
                 self::STATUS_APPROVED, 
                 self::STATUS_IN_USE,
-                'in user'
             ]) && $booking->start_time < $endTime && $booking->end_time > $startTime;
         });
 
@@ -1296,7 +1228,6 @@ class BookingService
     public function getBookingSuggestions($user, $resource, $start, $end)
     {
         $suggestions = [];
-        $currentTime = now();
         
         // 1. Nearby slots for the same resource
         $suggestions = array_merge($suggestions, $this->suggestNearbySlots($resource->id, $start, $end));
@@ -1308,32 +1239,25 @@ class BookingService
         $featureBasedSuggestions = $this->suggestFeatureBasedAlternatives($resource, $start, $end);
         $suggestions = array_merge($suggestions, $featureBasedSuggestions);
         
-        // 4. Minor overlap allowed (only if in the future)
-        $suggestedStartTime = Carbon::parse($start);
-        if ($suggestedStartTime->gt($currentTime) && $this->allowMinorOverlap($resource->id, $start, $end)) {
+        // 4. Minor overlap allowed
+        if ($this->allowMinorOverlap($resource->id, $start, $end)) {
             $suggestions[] = [
                 'resource_id' => $resource->id,
                 'resource_name' => $resource->name,
                 'resource_location' => $resource->location,
                 'resource_capacity' => $resource->capacity,
                 'resource_category' => $resource->category,
-                'start_time' => $suggestedStartTime->toDateTimeString(),
+                'start_time' => Carbon::parse($start)->toDateTimeString(),
                 'end_time' => Carbon::parse($end)->toDateTimeString(),
                 'type' => 'minor_overlap_allowed',
                 'suggestion_reason' => 'Minor overlap allowed for this resource'
             ];
         }
         
-        // 5. Filter suggestions to ensure they are in the future (greater than current time)
-        $suggestions = array_filter($suggestions, function($suggestion) use ($currentTime) {
-            $suggestionStartTime = Carbon::parse($suggestion['start_time']);
-            return $suggestionStartTime->gt($currentTime);
-        });
-        
-        // 6. Filter by user schedule
+        // 5. Filter by user schedule
         $suggestions = $this->filterByUserSchedule($user, $suggestions);
 
-        // 7. Advanced: Score and sort by user preferences
+        // 6. Advanced: Score and sort by user preferences
         $preferences = $user->preferences ?? [];
         foreach ($suggestions as &$suggestion) {
             $score = 0;
@@ -1406,196 +1330,5 @@ class BookingService
         });
         
         return $suggestions;
-    }
-
-    /**
-     * Create a booking for another user (admin functionality).
-     * This method allows admins to create bookings on behalf of other users.
-     *
-     * @param array $data
-     * @param User $adminUser The admin creating the booking
-     * @return array
-     */
-    public function createBookingForUser(array $data, User $adminUser): array
-    {
-        DB::beginTransaction();
-
-        try {
-            // Validate that the admin is actually an admin
-            if ($adminUser->user_type !== 'admin') {
-                throw new BookingException('Only administrators can create bookings for other users.');
-            }
-
-            // Get the target user
-            $targetUser = User::find($data['user_id']);
-            if (!$targetUser) {
-                throw new BookingException('Target user not found.');
-            }
-
-            $resource = $this->validateResource($data['resource_id']);
-            $startTime = Carbon::parse($data['start_time']);
-            $endTime = Carbon::parse($data['end_time']);
-
-            // Apply core business rule validations
-            $this->validateBookingTimes($startTime, $endTime);
-            $this->validateUserBookingLimit($targetUser); // Validate against target user's limits
-            $newBookingPriority = $this->determinePriority($targetUser, $data['booking_type']);
-
-            // Handle supporting document upload
-            $documentPath = null;
-            if (isset($data['supporting_document']) && $data['supporting_document'] instanceof \Illuminate\Http\UploadedFile) {
-                $document = $data['supporting_document'];
-                $documentName = time() . '_' . Str::random(10) . '.' . $document->getClientOriginalExtension();
-                $documentPath = Storage::putFileAs('public/booking_documents', $document, $documentName);
-                // Strip 'public/' prefix if present
-                if (strpos($documentPath, 'public/') === 0) {
-                    $documentPath = substr($documentPath, strlen('public/'));
-                }
-            }
-
-            // Check for conflicting bookings
-            $conflictingBookings = $this->findConflictingBookings(
-                $data['resource_id'],
-                $startTime,
-                $endTime
-            );
-
-            // Log conflict detection for debugging
-            Log::info('Admin booking conflict detection', [
-                'resource_id' => $data['resource_id'],
-                'start_time' => $startTime->toDateTimeString(),
-                'end_time' => $endTime->toDateTimeString(),
-                'conflicts_found' => $conflictingBookings->count(),
-                'target_user_id' => $targetUser->id,
-                'admin_user_id' => $adminUser->id,
-                'booking_type' => $data['booking_type'],
-                'new_priority' => $newBookingPriority
-            ]);
-
-            $preemptableConflicts = collect();
-            $nonPreemptableConflicts = collect();
-
-            foreach ($conflictingBookings as $conflict) {
-                if (!$conflict->user) {
-                    Log::warning("Conflicting booking {$conflict->id} has no associated user. Skipping priority determination for this conflict.");
-                    $nonPreemptableConflicts->push($conflict); 
-                    continue;
-                }
-                $conflictPriority = $this->determinePriority($conflict->user, $conflict->booking_type);
-
-                Log::info('Admin booking conflict priority comparison', [
-                    'conflict_id' => $conflict->id,
-                    'conflict_user' => $conflict->user->first_name . ' ' . $conflict->user->last_name,
-                    'conflict_booking_type' => $conflict->booking_type,
-                    'conflict_priority' => $conflictPriority,
-                    'new_priority' => $newBookingPriority,
-                    'is_preemptable' => $newBookingPriority > $conflictPriority
-                ]);
-
-                if ($newBookingPriority > $conflictPriority) {
-                    $preemptableConflicts->push($conflict);
-                } else {
-                    $nonPreemptableConflicts->push($conflict);
-                }
-            }
-
-            // Check if resource capacity is exceeded by non-preemptable bookings
-            if ($resource->capacity == 1 && $nonPreemptableConflicts->isNotEmpty()) {
-                $suggestions = $this->getBookingSuggestions($targetUser, $resource, $startTime, $endTime);
-                return [
-                    'success' => false,
-                    'message' => 'The resource is not available due to a higher or equal priority booking.',
-                    'booking' => null,
-                    'status_code' => 409,
-                    'suggestions' => $suggestions
-                ];
-            }
-
-            // For resources with capacity > 1, check if the combined count of new booking + non-preemptable conflicts exceeds capacity
-            if ($resource->capacity > 1 && ($nonPreemptableConflicts->count() + 1 > $resource->capacity)) {
-                $suggestions = $this->getBookingSuggestions($targetUser, $resource, $startTime, $endTime);
-                return [
-                    'success' => false,
-                    'message' => 'Resource capacity is fully booked by higher or equal priority bookings.',
-                    'booking' => null,
-                    'status_code' => 409,
-                    'suggestions' => $suggestions
-                ];
-            }
-
-            // All checks passed, proceed with booking.
-                
-            foreach ($preemptableConflicts as $preemptedBooking) {
-                $preemptedBooking->status = self::STATUS_PREEMPTED; 
-                $preemptedBooking->cancellation_reason = 'Preempted by admin booking (Ref: ' . $this->generateBookingReference() . ')';
-                $preemptedBooking->cancelled_at = Carbon::now();
-                $preemptedBooking->save();
-
-                // Notify the user whose booking was preempted
-                if ($preemptedBooking->user) {
-                    $preemptedBooking->user->notify(new \App\Notifications\BookingPreempted($preemptedBooking));
-                }
-            }
-
-            // Create the new booking for the target user
-            $booking = $targetUser->bookings()->create([
-                "booking_reference" => $this->generateBookingReference(),
-                "resource_id" => $data['resource_id'],
-                "start_time" => $startTime,
-                "end_time" => $endTime,                
-                "purpose" => $data['purpose'] ?? null,
-                "booking_type" => $data['booking_type'],
-                "priority" => $newBookingPriority,
-                "supporting_document_path" => $documentPath,
-                "status" => $data['status'] ?? 'approved', // Admin bookings can be auto-approved
-            ]);
-
-            // Notify the target user about their booking
-            if ($targetUser) {
-                $targetUser->notify(new \App\Notifications\BookingCreated($booking));
-            }
-
-            // Notify all admins (excluding the admin who created the booking)
-            $adminUsers = User::where('user_type', 'admin')->where('id', '!=', $adminUser->id)->get();
-            foreach ($adminUsers as $admin) {
-                $admin->notify(new \App\Notifications\BookingCreatedAdmin($booking));
-            }
-
-            // Log the admin action
-            Log::info('Admin created booking for user', [
-                'admin_id' => $adminUser->id,
-                'admin_name' => $adminUser->first_name . ' ' . $adminUser->last_name,
-                'target_user_id' => $targetUser->id,
-                'target_user_name' => $targetUser->first_name . ' ' . $targetUser->last_name,
-                'booking_id' => $booking->id,
-                'resource_id' => $booking->resource_id,
-                'start_time' => $booking->start_time,
-                'end_time' => $booking->end_time
-            ]);
-
-            DB::commit();
-
-            return [
-                'success' => true,
-                'message' => 'Booking created successfully for ' . $targetUser->first_name . ' ' . $targetUser->last_name . '.',
-                'booking' => $booking->load('resource', 'user'), 
-                'status_code' => 201
-            ];
-        } catch (BookingException $e) {
-            DB::rollBack();
-            Log::warning('Admin booking validation failed: ' . $e->getMessage(), [
-                'admin_user_id' => $adminUser->id ?? 'unknown',
-                'target_user_id' => $data['user_id'] ?? 'unknown'
-            ]);
-            return ['success' => false, 'message' => $e->getMessage(), 'booking' => null, 'status_code' => 400];
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Admin booking creation failed: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(), 
-                'admin_user_id' => $adminUser->id ?? 'unknown',
-                'target_user_id' => $data['user_id'] ?? 'unknown'
-            ]);
-            return ['success' => false, 'message' => 'An unexpected error occurred while creating the booking.', 'booking' => null, 'status_code' => 500];
-        }
     }
 }

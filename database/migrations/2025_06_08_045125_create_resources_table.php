@@ -13,12 +13,12 @@ return new class extends Migration
     {
          Schema::create('resources', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
+            $table->string('name')->unique();
             $table->string('description'); 
             $table->string('location'); 
             $table->string('google_location')->nullable();
             $table->integer('capacity');
-            $table->enum('category', ['classrooms', 'ict_labs', 'science_labs', 'sports','board_room', 'auditorium']);
+            $table->enum('category', ['classrooms', 'ict_labs', 'science_labs', 'sports','board_rooms', 'auditoriums']);
             $table->integer('is_active')->default(1); 
             $table->string("status")->default("Available");
             $table->string('image')->nullable(); 

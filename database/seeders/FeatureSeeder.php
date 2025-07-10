@@ -19,7 +19,8 @@ class FeatureSeeder extends Seeder
             'air_conditioning',
             'wifi',
             'Desks',
-            'Chair'
+            'Chair',
+            'chalk_board'
         ];
 
         foreach ($features as $feature) {

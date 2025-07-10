@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Booking;
 use App\Http\Requests\StoreBookingRequest; // Make sure this Form Request exists
 use App\Http\Requests\UpdateBookingRequest; // Make sure this Form Request exists
-use App\Http\Requests\AdminStoreBookingRequest; // Admin booking request
 use App\Models\Resource; // Potentially still needed for some checks, but less so now
 use App\Notifications\BookingCreated;
 use App\Services\BookingService;
@@ -44,7 +43,13 @@ class BookingController extends Controller
         // Base query - Admin sees all, regular user sees their own
         if ($user->user_type === 'admin') {
             $query = Booking::with(['resource', 'user']);
-        } else {
+        }elseif ($user ->user_type == 'porters') {
+            $bookings = Booking::whereHas('resource', function ($query) {
+                $query->where('special_approval', 'no');
+            })->get();
+        }
+        
+        else {
             // Regular users see only their own bookings
             $query = $user->bookings()->with(['resource', 'user']);
             $query->whereIn('status', ['approved', 'pending']);
@@ -198,8 +203,7 @@ class BookingController extends Controller
                     $startTime->toDateTimeString(), 
                     $endTime->toDateTimeString()
                 );
-                Log::info("suggestions");
-                Log::info($suggestions);
+                
                 $result['suggestions'] = $suggestions;
                 $result['message'] .= ' Here are some alternative resources that might be available:';
             }
@@ -209,48 +213,6 @@ class BookingController extends Controller
         $statusCode = $result['available'] ? 200 : ($result['hasConflict'] ? 409 : 422);
 
         return response()->json($result, $statusCode);
-    }
-
-    /**
-     * Check advanced availability with comprehensive conflict detection.
-     *
-     * @param Request $request
-     * @return JsonResponse
-     */
-    public function checkAdvancedAvailability(Request $request): JsonResponse
-    {
-        $request->validate([
-            'resource_id' => 'required|exists:resources,id',
-            'start_time' => 'required|date',
-            'end_time' => 'required|date|after:start_time',
-            'exclude_booking_id' => 'sometimes|nullable|exists:bookings,id',
-        ]);
-
-        $user = Auth::user();
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Authentication required'
-            ], 401);
-        }
-
-        $resourceId = $request->input('resource_id');
-        $startTime = Carbon::parse($request->input('start_time'));
-        $endTime = Carbon::parse($request->input('end_time'));
-        $excludeBookingId = $request->input('exclude_booking_id');
-
-        $result = $this->bookingService->checkAdvancedAvailability(
-            $resourceId,
-            $startTime,
-            $endTime,
-            $user,
-            $excludeBookingId
-        );
-
-        return response()->json([
-            'success' => true,
-            'data' => $result
-        ]);
     }
 
     /**
@@ -278,44 +240,6 @@ class BookingController extends Controller
         if ($result['success'] && isset($result['booking'])) {
             $user->notify(new BookingCreated($result['booking']));
         }
-
-        $response = [
-            'success' => $result['success'],
-            'message' => $result['message'],
-            'booking' => $result['booking'] ?? null,
-        ];
-        if (isset($result['suggestions'])) {
-            $response['suggestions'] = $result['suggestions'];
-        }
-
-        return response()->json($response, $result['status_code']);
-    }
-
-    /**
-     * Store a booking for another user (admin functionality).
-     * This method allows admins to create bookings on behalf of other users.
-     *
-     * @param AdminStoreBookingRequest $request
-     * @return JsonResponse
-     */
-    public function storeForUser(AdminStoreBookingRequest $request): JsonResponse
-    {
-        $adminUser = $request->user();
-        $validatedData = $request->validated();
-        
-        // Ensure the supporting document file is included in the data
-        if ($request->hasFile('supporting_document')) {
-            $validatedData['supporting_document'] = $request->file('supporting_document');
-        }
-        
-        Log::info('Admin creating booking for user:', [
-            'admin_id' => $adminUser->id,
-            'admin_name' => $adminUser->first_name . ' ' . $adminUser->last_name,
-            'target_user_id' => $validatedData['user_id'],
-            'booking_data' => $request->except(['supporting_document'])
-        ]);
-
-        $result = $this->bookingService->createBookingForUser($validatedData, $adminUser);
 
         $response = [
             'success' => $result['success'],
@@ -632,65 +556,6 @@ class BookingController extends Controller
         return response()->json([
             'success' => true,
             'bookings' => $recent
-        ]);
-    }
-
-    /**
-     * Lookup booking by UUID and return numeric ID for frontend compatibility.
-     *
-     * @param string $uuid
-     * @return JsonResponse
-     */
-    public function lookupByUuid(string $uuid): JsonResponse
-    {
-        $booking = Booking::where('uuid', $uuid)->first();
-        
-        if (!$booking) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Booking not found'
-            ], 404);
-        }
-
-        // Policy check: ensure user owns the booking or is an admin/staff
-        if ($booking->user_id !== Auth::id() && !(Auth::user() && (Auth::user()->user_type === 'admin' || Auth::user()->user_type === 'staff'))) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        return response()->json([
-            'success' => true,
-            'booking' => [
-                'id' => $booking->id,
-                'uuid' => $booking->uuid,
-                'booking_reference' => $booking->booking_reference,
-                'user_id' => $booking->user_id,
-                'resource_id' => $booking->resource_id,
-                'start_time' => $booking->start_time ? $booking->start_time->toISOString() : null,
-                'end_time' => $booking->end_time ? $booking->end_time->toISOString() : null,
-                'status' => $booking->status,
-                'purpose' => $booking->purpose,
-                'booking_type' => $booking->booking_type,
-                'priority' => $booking->priority,
-                'supporting_document' => $booking->supporting_document_path,
-                'created_at' => $booking->created_at ? $booking->created_at->toISOString() : null,
-                'updated_at' => $booking->updated_at ? $booking->updated_at->toISOString() : null,
-                'resource' => $booking->resource ? [
-                    'id' => $booking->resource->id,
-                    'name' => $booking->resource->name,
-                    'location' => $booking->resource->location ?? 'Unknown Location',
-                    'description' => $booking->resource->description,
-                    'capacity' => $booking->resource->capacity,
-                    'type' => $booking->resource->type ?? null,
-                    'is_active' => $booking->resource->is_active ?? null,
-                ] : null,
-                'user' => $booking->user ? [
-                    'id' => $booking->user->id,
-                    'first_name' => $booking->user->first_name ?? 'N/A',
-                    'last_name' => $booking->user->last_name ?? 'N/A',
-                    'email' => $booking->user->email ?? 'N/A',
-                    'user_type' => $booking->user->user_type ?? $booking->user->role?->name ?? 'N/A',
-                ] : null
-            ]
         ]);
     }
 }

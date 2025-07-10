@@ -100,7 +100,10 @@ class ResourceController extends Controller
         try {
             $validatedData = $request->validated();
             $features = $request->input('features', []);
-            $resource = Resource::create($validatedData);
+            
+            // Use ResourceService to handle image upload properly
+            $resource = $this->resourceService->createResource($validatedData);
+            
             if (!empty($features)) {
                 $resource->features()->sync($features);
             }
@@ -160,7 +163,10 @@ class ResourceController extends Controller
         try {
             $validatedData = $request->validated();
             $features = $request->input('features', []);
-            $resource->update($validatedData);
+            
+            // Use ResourceService to handle image upload properly
+            $resource = $this->resourceService->updateResource($resource, $validatedData);
+            
             if (!empty($features)) {
                 $resource->features()->sync($features);
             } else {
@@ -194,7 +200,8 @@ class ResourceController extends Controller
         }
         try {
             $resource->features()->detach();
-            $resource->delete();
+            // Use ResourceService to handle image deletion properly
+            $this->resourceService->deleteResource($resource);
             return response()->json([
                 "success" => true,
                 "message" => "Resource deleted successfully."

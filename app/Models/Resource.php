@@ -21,6 +21,7 @@ class Resource extends Model
         'category',
         'status',
         'image',
+        'special_approval'
     ];
 
     protected $casts = [

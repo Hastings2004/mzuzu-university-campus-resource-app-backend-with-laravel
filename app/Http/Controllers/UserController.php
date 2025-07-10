@@ -156,6 +156,7 @@ class UserController extends Controller
                 'district' => ['sometimes', 'string', 'max:255'],
                 'village' => ['sometimes', 'string', 'max:255'],
                 'age' => ['sometimes']
+                // 'user_type' is not updatable by this endpoint; do not include in validation rules
             ];
 
             $validatedData = $request->validate($rules);
@@ -213,7 +214,7 @@ class UserController extends Controller
 
         try {
             $validatedData = $request->validate([
-                'user_type' => 'required|string|in:staff,student,admin',
+                'user_type' => 'required|string|in:staff,student,admin, porters',
                 //'role_id' => 'required|integer|exists:roles,id',
             ]);
 
