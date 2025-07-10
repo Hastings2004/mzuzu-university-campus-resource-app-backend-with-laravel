@@ -33,7 +33,7 @@ class UpdateResourceRequest extends FormRequest
             "capacity" => ['sometimes', 'integer', 'min:1'],
             "category" => ['sometimes', 'string', 'in:classrooms,ict_labs,science_labs,auditorium,sports,cars'],
             "status" => ['sometimes', 'string', 'in:available,unavailable'],
-            "image" => ['sometimes', 'nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048']
+            "image" => ['sometimes', 'nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:10048']
         ];
     }
 }

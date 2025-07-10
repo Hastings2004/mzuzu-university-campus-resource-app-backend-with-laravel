@@ -687,7 +687,7 @@ class BookingService
 
             $conflictCount = $conflictingBookings->count();
 
-            if ($resource->capacity == 1 && $conflictCount > 0) {
+            if ($conflictCount > 0) {
                 return [
                     'available' => false,
                     'hasConflict' => true,
@@ -696,10 +696,8 @@ class BookingService
                         return [
                             'id' => $booking->id,
                             'start_time' => $booking->start_time->format('Y-m-d H:i'),
-                            'end_time' => $booking->end_time->format('Y-m-d H:i'),
-                            // Ensure user and role are loaded for priority and name
+                            'end_time' => $booking->end_time->format('Y-m-d H:i'),                           
                             'user' => $booking->user ? ($booking->user->first_name . ' ' . $booking->user->last_name) : 'Unknown',
-                            // Calculate priority_level using the same logic
                             'priority_level' => $booking->user ? $this->determinePriority($booking->user, $booking->booking_type) : null,
                             'status' => $booking->status, // Include status
                         ];

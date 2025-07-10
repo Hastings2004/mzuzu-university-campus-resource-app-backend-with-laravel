@@ -196,7 +196,7 @@ class BookingController extends Controller
             $user = Auth::user();
             $resource = Resource::find($resourceId);
             
-            if ($user && $resource) {
+            if ($resource) {
                 $suggestions = $this->bookingService->getBookingSuggestions(
                     $user, 
                     $resource, 
@@ -205,6 +205,7 @@ class BookingController extends Controller
                 );
                 
                 $result['suggestions'] = $suggestions;
+                
                 $result['message'] .= ' Here are some alternative resources that might be available:';
             }
         }
