@@ -122,7 +122,7 @@
                 </tr>
             </table>
             <div style="text-align: center;">
-                <a href="{{ url('http://localhost:5173/booking/' . $booking->id) }}" class="button">Review & Approve Booking</a>
+                <a href="{{ url('http://localhost:5173/booking/' . $booking->uuid) }}" class="button">Review & Approve Booking</a>
             </div>
             <p>If you have any questions, please contact the resource management team.</p>
         </div>

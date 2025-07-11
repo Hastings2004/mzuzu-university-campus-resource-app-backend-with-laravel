@@ -265,7 +265,9 @@ class BookingApprovalService
                     ]);
 
                     // Notify the user
-                    // $booking->user->notify(new BookingApproved($booking));
+                    if ($booking->user) {
+                        $booking->user->notify(new \App\Notifications\BookingApproved($booking));
+                    }
                     $approvedCount++;
                 } catch (\Exception $e) {
                     $errors[] = "Failed to approve booking #{$booking->id}: " . $e->getMessage();

@@ -110,7 +110,7 @@
                 </tr>
             </table>
             <div style="text-align: center;">
-                <a href="{{ url('http://localhost:5173/booking/' . $booking->id) }}" class="button">View Booking</a>
+                <a href="{{ url('http://localhost:5173/booking/' . $booking->uuid) }}" class="button">View Booking</a>
             </div>
             <p>If you did not create this booking, please ignore this email.</p>
         </div>

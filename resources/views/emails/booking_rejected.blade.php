@@ -119,7 +119,7 @@
             </div>
             <p>This often happens when the resource is already booked by an activity with higher or equal priority during your requested time.</p>
             <div style="text-align: center;">
-                <a href="{{ url('http://localhost:5173/viewResource') }}" class="button">Browse Available Resources</a>
+                <a href="{{ url('http://localhost:5173/resources') }}" class="button">Browse Available Resources</a>
             </div>
             <p>Please consider booking an alternative time or resource. We apologize for any inconvenience.</p>
             @if(!empty($suggestions))

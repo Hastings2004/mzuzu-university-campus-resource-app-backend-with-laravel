@@ -42,6 +42,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'profile_visibility',
         'data_sharing',
         'email_notifications',
+        'uuid',
     ];
 
 

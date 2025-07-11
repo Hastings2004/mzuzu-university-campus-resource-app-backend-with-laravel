@@ -45,6 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/logout', [AuthController::class, 'logout']);
     Route::apiResource('/resources', ResourceController::class);    
     Route::apiResource('/bookings', BookingController::class);
+    Route::get('/monthly-bookings', [BookingController::class, 'monthlyBookings']);
+
     Route::get('/booking-history', [BookingController::class, 'bookingHistory']);
     Route::get('/user/upcoming-booking', [BookingController::class, 'getUserBookings']);
     Route::post('/admin/bookings', [BookingController::class, 'storeForUser']); // Admin booking for other users
@@ -65,19 +67,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bookings/cancellable', [BookingController::class, 'getCancellableBookings']);
     Route::get('/bookings/{booking}/can-cancel', [BookingController::class, 'checkCancellationEligibility']);
     Route::post('/reservations', [Reservation::class, 'store']); 
-    Route::post('/bookings/{id}/approve', [BookingApprovalController::class, 'approve']);
-    Route::put('/bookings/{id}/approve', [BookingApprovalController::class, 'approve']);
+    Route::post('/bookings/{booking}/approve', [BookingApprovalController::class, 'approve']);
+    Route::put('/bookings/{booking}/approve', [BookingApprovalController::class, 'approve']);
     Route::get('/resources/{id}/bookings', [ResourceController::class, 'getResourceBookings']);
-    Route::post('/bookings/{id}/reject', [BookingApprovalController::class, 'reject']);
-    Route::post('/bookings/{id}/cancel', [BookingApprovalController::class, 'cancel']); 
+    Route::post('/bookings/{booking}/reject', [BookingApprovalController::class, 'reject']);
+    Route::post('/bookings/{booking}/cancel', [BookingApprovalController::class, 'cancel']); 
     Route::delete('/bookings/{id}', [BookingController::class, 'destroy']); 
     Route::post('/bookings/bulk-approve', [BookingApprovalController::class, 'bulkApprove']);
     Route::get('/reports/resource-utilization', [ReportController::class, 'getResourceUtilization']);
     Route::get('/reports/booking-summary', [ReportController::class, 'getBookingSummary']);
     Route::get('/reports/upcoming-bookings', [ReportController::class, 'getUpcomingBookings']);
     Route::get('/reports/canceled-bookings', [ReportController::class, 'getCanceledBookings']);
-    Route::post('/bookings/{id}/in-use', [BookingApprovalController::class, 'inUseApproval']);
-    Route::post('/bookings/{id}/complete', [BookingApprovalController::class, 'complete']);
+    Route::post('/bookings/{booking}/in-use', [BookingApprovalController::class, 'inUseApproval']);
+    Route::post('/bookings/{booking}/complete', [BookingApprovalController::class, 'complete']);
     Route::prefix('timetable')->group(function () {
         Route::post('/import', [TimetableController::class, 'import']);
         Route::get('/', [TimetableController::class, 'getTimetable']);

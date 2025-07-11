@@ -86,10 +86,10 @@ class BookingApprovalController extends Controller
      * Approve a specific booking.
      *
      * @param Request $request
-     * @param int $id Booking ID.
+     * @param Booking $booking Booking ID.
      * @return JsonResponse
      */
-    public function approve(Request $request, int $id): JsonResponse
+    public function approve(Request $request, Booking $booking): JsonResponse
     {
         $user = Auth::user();
         if (!$user || !($user->user_type === 'admin' )) {
@@ -105,7 +105,7 @@ class BookingApprovalController extends Controller
             ]);
 
             $approvedBooking = $this->bookingApprovalService->approveBooking(
-                $id,
+                $booking->id,
                 $user->id,
                 $validatedData['notes'] ?? null
             );
@@ -143,10 +143,10 @@ class BookingApprovalController extends Controller
      * Reject a specific booking.
      *
      * @param Request $request
-     * @param int $id Booking ID.
+     * @param Booking $booking Booking ID.
      * @return JsonResponse
      */
-    public function reject(Request $request, int $id): JsonResponse
+    public function reject(Request $request, Booking $booking): JsonResponse
     {
         $user = Auth::user();
         if (!$user || !($user->user_type === 'admin' || $user->role?->name === 'admin')) {
@@ -163,7 +163,7 @@ class BookingApprovalController extends Controller
             ]);
 
             $rejectedBooking = $this->bookingApprovalService->rejectBooking(
-                $id,
+                $booking->id,
                 $user->id,
                 $validatedData['reason'],
                 $validatedData['notes'] ?? null
@@ -202,10 +202,10 @@ class BookingApprovalController extends Controller
      * Cancel a specific booking by an admin.
      *
      * @param Request $request
-     * @param int $id Booking ID.
+     * @param Booking $booking Booking ID.
      * @return JsonResponse
      */
-    public function cancel(Request $request, int $id): JsonResponse
+    public function cancel(Request $request, Booking $booking): JsonResponse
     {
         $user = Auth::user();
         if (!$user || !($user->user_type === 'admin' || $user->role?->name === 'admin')) {
@@ -223,7 +223,7 @@ class BookingApprovalController extends Controller
             ]);
 
             $cancelledBooking = $this->bookingApprovalService->cancelBookingByAdmin(
-                $id,
+                $booking->id,
                 $user->id,
                 $validatedData['reason'],
                 $validatedData['refund_amount'] ?? null,
@@ -261,8 +261,9 @@ class BookingApprovalController extends Controller
      * @param int $id Booking ID.
      * @return JsonResponse
      */
-    public function show(int $id): JsonResponse
+    public function show($id): JsonResponse
     {
+        $id = (int) $id;
         $user = Auth::user();
         if (!$user || !($user->user_type === 'admin' || $user->role?->name === 'admin')) {
             return response()->json([
@@ -309,26 +310,56 @@ class BookingApprovalController extends Controller
             ], 403);
         }
 
+        // Debug: Log the incoming request data
+        Log::info('Bulk approval request data:', [
+            'all_data' => $request->all(),
+            'booking_ids' => $request->booking_ids,
+            'notes' => $request->notes
+        ]);
+
         try {
             $request->validate([
-                'booking_ids' => 'required|array|min:1',
-                'booking_ids.*' => 'integer|exists:bookings,id',
+                'booking_uuids' => 'required|array|min:1',
+                'booking_uuids.*' => 'string|exists:bookings,uuid',
                 'notes' => 'nullable|string|max:500'
             ]);
 
+            // Convert UUIDs to IDs for the service
+            $bookingIds = Booking::whereIn('uuid', $request->booking_uuids)->pluck('id')->toArray();
+            
+            // Debug: Log the converted IDs
+            Log::info('Converted booking IDs:', [
+                'uuids' => $request->booking_uuids,
+                'ids' => $bookingIds
+            ]);
+
             $result = $this->bookingApprovalService->bulkApproveBookings(
-                $request->booking_ids,
+                $bookingIds,
                 $user->id,
                 $request->notes ?? null
             );
 
-            // Determine appropriate status code based on partial success or full failure
-            $statusCode = 200; // Default to OK
-            if ($result['total_requested'] > 0 && $result['approved_count'] === 0) {
-                $statusCode = 400; // All failed
-            } elseif ($result['approved_count'] > 0 && $result['approved_count'] < $result['total_requested']) {
-                $statusCode = 207; // Partial Content (Multi-Status) - if API client understands it, otherwise 200
+            // Send notifications for successfully approved bookings
+            if ($result['approved_count'] > 0) {
+                $approvedBookings = Booking::whereIn('id', $bookingIds)
+                    ->where('status', Booking::STATUS_APPROVED)
+                    ->where('approved_by', $user->id)
+                    ->with('user')
+                    ->get();
+                
+                foreach ($approvedBookings as $booking) {
+                    if ($booking->user) {
+                        $booking->user->notify(new BookingApproved($booking));
+                    }
+                }
             }
+
+            // Determine appropriate status code based on partial success or full failure
+            $statusCode = 200; 
+            if ($result['total_requested'] > 0 && $result['approved_count'] === 0) {
+                $statusCode = 400;
+            } elseif ($result['approved_count'] > 0 && $result['approved_count'] < $result['total_requested']) {
+                $statusCode = 207;             }
 
             return response()->json([
                 'success' => true, // Or false if all failed
@@ -339,6 +370,12 @@ class BookingApprovalController extends Controller
             ], $statusCode);
 
         } catch (ValidationException $e) {
+            // Debug: Log the validation errors
+            Log::error('Bulk approval validation failed:', [
+                'errors' => $e->errors(),
+                'request_data' => $request->all()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
@@ -358,7 +395,7 @@ class BookingApprovalController extends Controller
         }
     }
 
-    public function inUseApproval(Request $request, int $id): JsonResponse
+    public function inUseApproval(Request $request, Booking $booking): JsonResponse
     {
         $user = Auth::user();
         if (!$user || !($user->user_type === 'admin' || $user->role?->name === 'admin')) {
@@ -374,7 +411,7 @@ class BookingApprovalController extends Controller
             ]);
 
             $inUseBooking = $this->bookingApprovalService->markBookingAsInUse(
-                $id,
+                $booking->id,
                 $user->id,
                 $validatedData['notes'] ?? null
             );
@@ -411,8 +448,9 @@ class BookingApprovalController extends Controller
      * @param int $id Booking ID.
      * @return JsonResponse
      */
-        public function cancelBooking(Request $request, int $id): JsonResponse
+        public function cancelBooking(Request $request, $id): JsonResponse
         {
+            $id = (int) $id;
             $user = Auth::user();
             if (!$user || $user->id !== $id || !($user->user_type === 'admin' || $user->role?->name === 'admin')) {
                 return response()->json([

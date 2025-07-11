@@ -662,4 +662,119 @@ class BookingController extends Controller
             ],
         ]);
     }
+
+    public function monthlyBookings(Request $request){
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // Base query - Admin sees all, regular user sees their own
+        
+        $query = Booking::with(['resource', 'user']);
+        
+
+        // 1. Apply Status Filter 
+        $requestedStatus = $request->query('status');
+        $allowedStatuses = [
+            'pending',
+            'approved',
+            'in_use'
+        ]; 
+
+        if ($requestedStatus && $requestedStatus !== 'all' && in_array($requestedStatus, $allowedStatuses)) {
+            $query->where('status', $requestedStatus);
+        }
+
+        // Map frontend string priority to backend integer priority_level
+        $priorityMap = [
+            'low' => 1,    
+            'medium' => 2, 
+            'high' => 3,   
+        ];
+
+        $requestedPriority = $request->query('priority'); // Frontend sends 'priority'
+        if ($requestedPriority && $requestedPriority !== 'all' && isset($priorityMap[$requestedPriority])) {
+            $query->where('priority', $priorityMap[$requestedPriority]);
+        }
+
+        // 2. Apply Date Range Filter 
+
+        $sortBy = $request->query('sort_by', 'created_at'); 
+        $sortOrder = $request->query('order', 'desc'); 
+
+        // Whitelist allowed sort columns 
+        $allowedSortColumns = ['start_time', 'end_time', 'created_at', 'status', 'priority'];
+        if (!in_array($sortBy, $allowedSortColumns)) {
+            $sortBy = 'created_at'; 
+        }
+
+        // Sanitize sort order
+        $sortOrder = in_array(strtolower($sortOrder), ['asc', 'desc']) ? strtolower($sortOrder) : 'desc'; // Default to 'desc'
+
+        $query->orderBy($sortBy, $sortOrder);
+
+
+        // 4. Implement Pagination 
+        $perPage = (int) $request->query('per_page', 15); 
+        $bookings = $query->paginate($perPage);
+
+        // Map integer priority_level to string priority for frontend response
+        $priorityLevelToStringMap = array_flip($priorityMap); 
+
+        // Prepare bookings data for consistent frontend consumption
+        $formattedBookings = $bookings->getCollection()->map(function ($booking) use ($priorityLevelToStringMap) {
+            return array_merge([
+                'id' => $booking->id,
+                'booking_reference' => $booking->booking_reference,
+                'user_id' => $booking->user_id,
+                'resource_id' => $booking->resource_id,
+                'start_time' => $booking->start_time ? $booking->start_time->toISOString() : null,
+                'end_time' => $booking->end_time ? $booking->end_time->toISOString() : null,
+                'status' => $booking->status,
+                'purpose' => $booking->purpose,
+                'booking_type' => $booking->booking_type,                
+                'priority' => $priorityLevelToStringMap[$booking->priority] ?? 'unknown',
+                'supporting_document' => $booking->supporting_document_path,
+                'created_at' => $booking->created_at ? $booking->created_at->toISOString() : null,
+                'updated_at' => $booking->updated_at ? $booking->updated_at->toISOString() : null,
+                'resource' => $booking->resource ? [
+                    'id' => $booking->resource->id,
+                    'name' => $booking->resource->name,
+                    'location' => $booking->resource->location ?? 'Unknown Location',
+                    'description' => $booking->resource->description,
+                    'capacity' => $booking->resource->capacity,
+                    'type' => $booking->resource->type ?? null,
+                    'is_active' => $booking->resource->is_active ?? null,
+                ] : null,
+                'user' => $booking->user ? [
+                    'id' => $booking->user->id,
+                    'first_name' => $booking->user->first_name ?? 'N/A',
+                    'last_name' => $booking->user->last_name ?? 'N/A',
+                    'email' => $booking->user->email ?? 'N/A',
+                    'user_type' => $booking->user->user_type ?? $booking->user->role?->name ?? 'N/A',
+                ] : null
+            ], ['uuid' => $booking->uuid]);
+        });
+
+        // Log for regular user 
+        if ($user->user_type !== 'admin') {
+            Log::info('User retrieved their bookings.', ['user_id' => $user->id]);
+        }
+
+        // Return paginated data
+        return response()->json([
+            'success' => true,
+            'bookings' => $formattedBookings,
+            'pagination' => [
+                'total' => $bookings->total(),
+                'per_page' => $bookings->perPage(),
+                'current_page' => $bookings->currentPage(),
+                'last_page' => $bookings->lastPage(),
+                'from' => $bookings->firstItem(),
+                'to' => $bookings->lastItem(),
+            ],
+        ]);
+
+    }
 }
