@@ -107,6 +107,14 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Use uuid for route model binding
+     */
+    public function getRouteKeyName()
+    {
+        return 'uuid';
+    }
+
+    /**
      * Send the email verification notification.
      *
      * @return void

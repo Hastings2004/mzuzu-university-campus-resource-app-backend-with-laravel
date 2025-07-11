@@ -33,9 +33,14 @@ class UserController extends Controller
 
         // If authorized, fetch all users
         $users = User::all();
+        $usersArray = $users->map(function($user) {
+            return array_merge($user->toArray(), ['uuid' => $user->uuid]);
+        });
+        Log::info("user info");
+        Log::info($usersArray);
         return response()->json([
             "success" => true,
-            "users" => $users 
+            "users" => $usersArray 
         ]);
 
     }
@@ -49,11 +54,11 @@ class UserController extends Controller
             }
 
             $user = Auth::user();
-
+            $userArray = array_merge($user->toArray(), ['uuid' => $user->uuid]);
             // Return the authenticated user's data
             return response()->json([
                 'success' => true,
-                'user' => $user 
+                'user' => $userArray 
             ], 200);
 
         } catch (\Exception $e) {
@@ -102,10 +107,11 @@ class UserController extends Controller
             $authenticatedUser->fill($validatedData);
             $authenticatedUser->save();
 
+            $userArray = array_merge($authenticatedUser->toArray(), ['uuid' => $authenticatedUser->uuid]);
             return response()->json([
                 'success' => true,
                 'message' => 'Profile updated successfully!',
-                'user' => $authenticatedUser,
+                'user' => $userArray,
             ], 200);
 
         } catch (ValidationException $e) {
@@ -168,10 +174,11 @@ class UserController extends Controller
             $authenticatedUser->fill($validatedData);
             $authenticatedUser->save();
 
+            $userArray = array_merge($authenticatedUser->toArray(), ['uuid' => $authenticatedUser->uuid]);
             return response()->json([
                 'success' => true,
                 'message' => 'Profile updated successfully!',
-                'user' => $authenticatedUser,
+                'user' => $userArray,
             ], 200);
 
         } catch (ValidationException $e) {
@@ -338,10 +345,10 @@ class UserController extends Controller
     /**
      * Display a single user's details (Admin only)
      *
-     * @param int $id
+     * @param User $user
      * @return JsonResponse
      */
-    public function show($id): JsonResponse
+    public function show(User $user): JsonResponse
     {
         // Ensure the user is authenticated
         if (!Auth::check()) {
@@ -356,17 +363,14 @@ class UserController extends Controller
             ], 403);
         }
 
-        $user = User::with('roles')->find($id);
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'User not found.'
-            ], 404);
-        }
+        $user->load('roles');
 
+        $arrayUser = array_merge($user->toArray(), ['uuid' => $user->uuid]);
+        Log::error("user information");
+        Log::info($arrayUser);
         return response()->json([
             'success' => true,
-            'user' => $user
+            'user' => $arrayUser
         ], 200);
     }
 

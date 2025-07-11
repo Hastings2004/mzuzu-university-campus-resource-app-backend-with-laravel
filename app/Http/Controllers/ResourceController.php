@@ -72,9 +72,13 @@ class ResourceController extends Controller
                 $query->where('capacity', '<=', $maxCapacity);
             }
             $resources = $query->get();
+            // Ensure uuid is included in each resource
+            $resourcesArray = $resources->map(function($resource) {
+                return array_merge($resource->toArray(), ['uuid' => $resource->uuid]);
+            });
             return response()->json([
                 "success" => true,
-                "resources" => $resources
+                "resources" => $resourcesArray
             ]);
         } catch (\Exception $e) {
             Log::error('ResourceController@index failed: ' . $e->getMessage());
@@ -107,10 +111,11 @@ class ResourceController extends Controller
             if (!empty($features)) {
                 $resource->features()->sync($features);
             }
+            $resourceArray = array_merge($resource->toArray(), ['uuid' => $resource->uuid]);
             return response()->json([
                 "success" => true,
                 "message" => "Resource created successfully.",
-                "resource" => $resource->load('features')
+                "resource" => $resourceArray
             ], 201);
         } catch (\Exception $e) {
             Log::error('ResourceController@store failed: ' . $e->getMessage());
@@ -135,9 +140,10 @@ class ResourceController extends Controller
         }
         try {
             $resource->load('features');
+            $resourceArray = array_merge($resource->toArray(), ['uuid' => $resource->uuid]);
             return response()->json([
                 "success" => true,
-                "resource" => $resource
+                "resource" => $resourceArray
             ]);
         } catch (\Exception $e) {
             Log::error('ResourceController@show failed: ' . $e->getMessage());
@@ -172,10 +178,11 @@ class ResourceController extends Controller
             } else {
                 $resource->features()->detach();
             }
+            $resourceArray = array_merge($resource->toArray(), ['uuid' => $resource->uuid]);
             return response()->json([
                 "success" => true,
                 "message" => "Resource updated successfully.",
-                "resource" => $resource->load('features')
+                "resource" => $resourceArray
             ]);
         } catch (\Exception $e) {
             Log::error('ResourceController@update failed: ' . $e->getMessage());

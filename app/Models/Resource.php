@@ -65,4 +65,12 @@ class Resource extends Model
             }
         });
     }
+
+    /**
+     * Use uuid for route model binding
+     */
+    public function getRouteKeyName()
+    {
+        return 'uuid';
+    }
 }

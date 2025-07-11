@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/logout', [AuthController::class, 'logout']);
     Route::apiResource('/resources', ResourceController::class);    
     Route::apiResource('/bookings', BookingController::class);
+    Route::get('/booking-history', [BookingController::class, 'bookingHistory']);
     Route::get('/user/upcoming-booking', [BookingController::class, 'getUserBookings']);
     Route::post('/admin/bookings', [BookingController::class, 'storeForUser']); // Admin booking for other users
     Route::get('/profile', [UserController::class, 'getProfile']);
@@ -52,6 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{id}/update', [UserController::class, 'update']);
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/{id}', [UserController::class, 'show']);
+    Route::get('/users/{user}', [UserController::class, 'show']);
     Route::get('/roles', [UserController::class, 'getRoles']);
     Route::patch('user/change-password', [UserController::class, 'changePassword']);
     Route::patch('user/password', [UserController::class, 'changePassword']);
